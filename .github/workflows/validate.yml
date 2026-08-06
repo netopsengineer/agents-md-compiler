@@ -203,7 +203,7 @@ jobs:
           # from a warm cache entry, and the package declares no dependencies, so a
           # successful install is also evidence that nothing crept into the runtime
           # metadata.
-          VIRTUAL_ENV=fresh uv pip install --no-cache incoming/*.whl
+          VIRTUAL_ENV=fresh uv pip install --no-cache incoming/dist/*.whl
           echo "installed:"
           VIRTUAL_ENV=fresh uv pip list
 
