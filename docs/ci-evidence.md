@@ -93,6 +93,23 @@ The bootstrap path creates the tag and the GitHub release only after PyPI accept
 upload, and refuses to move a tag that already exists. Re-running after a transient
 GitHub failure is therefore safe and does not republish.
 
+## PyPI Trusted Publisher
+
+Verified through the authenticated `netopsengineer` PyPI session on 2026-08-06. The
+pending publisher has this exact identity:
+
+| Field            | Value                                 |
+|------------------|---------------------------------------|
+| Project          | `agents-md-compiler`                  |
+| Publisher        | GitHub                                |
+| Owner/repository | `netopsengineer/agents-md-compiler`   |
+| Workflow         | `release.yml`                         |
+| Environment      | `pypi`                                |
+| Authentication   | OIDC Trusted Publishing; no API token |
+
+The pending publisher will become the project's ordinary trusted publisher when the
+bootstrap workflow creates the project with its first accepted upload.
+
 ## Validation results
 
 Run locally on 2026-08-06 after the approved uv 0.12.2 update, then reproduced by
@@ -137,7 +154,7 @@ environment. The environment contained only `agents-md-compiler==0.1.0`, both
 documented invocation forms worked, all 51 public API names imported, and
 `scripts/smoke.sh` reported `smoke: all assertions passed`.
 
-### Automatic event-trigger delivery defect
+### GitHub Actions incident
 
 GitHub recorded direct `PushEvent` entries from actor `netopsengineer` for the
 initial commit and subsequent corrections on `refs/heads/main`, but created no check
@@ -156,9 +173,15 @@ Both affected workflows were disabled and immediately re-enabled through the
 supported workflow API, then read back as active before the next PR synchronization
 event.
 
-Status: `BLOCKED`. Do not enable `SEMANTIC_RELEASE_ENABLED` or claim automatic
-delivery readiness until repository events create the expected workflow runs. Manual
-dispatch proves the workflow definitions and exact commit but does not prove
+The live [GitHub Actions incident](https://www.githubstatus.com/incidents/qcvjkzcs7j74)
+explains the missing runs. At 2026-08-06T22:18:09Z, GitHub reported Actions in a
+major outage and stated that webhook triggers remained throttled, with many push and
+pull request events not triggering new workflow runs.
+
+Status: `BLOCKED` by the external incident. Do not enable
+`SEMANTIC_RELEASE_ENABLED` or claim automatic delivery readiness until GitHub marks
+the incident resolved and a new repository event creates the expected workflow runs.
+Manual dispatch proves the workflow definitions and exact commit but does not prove
 automatic event delivery.
 
 ## Decisions taken on evidence
@@ -234,10 +257,9 @@ Every repository, App, secret, and environment operation used the active
 
 | Item                                                   | Blocking dependency                                      |
 |--------------------------------------------------------|----------------------------------------------------------|
-| Pending PyPI Trusted Publisher identity                | Requires authenticated PyPI project access               |
 | Dependabot auto-merge                                  | Deliberately disabled until all prerequisites are tested |
 | First semantic-release run proving an idempotent no-op | Requires `v0.1.0` to exist                               |
-| Automatic event-triggered workflow delivery            | Requires GitHub to create runs for push and PR events    |
+| Automatic event-triggered workflow delivery            | Requires incident `qcvjkzcs7j74` to resolve and a retest |
 
 The exact-commit manual-dispatch workflows are green. Automatic push-triggered
 and pull-request-triggered delivery remains blocked as recorded above.
