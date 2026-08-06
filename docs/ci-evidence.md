@@ -137,12 +137,14 @@ environment. The environment contained only `agents-md-compiler==0.1.0`, both
 documented invocation forms worked, all 51 public API names imported, and
 `scripts/smoke.sh` reported `smoke: all assertions passed`.
 
-### Push-trigger delivery defect
+### Automatic event-trigger delivery defect
 
 GitHub recorded direct `PushEvent` entries from actor `netopsengineer` for the
 initial commit and subsequent corrections on `refs/heads/main`, but created no check
-suite and no workflow run for any push. The latest affected SHA is
-`7278d871753990643c0fe2494cfd5d46740b7deb`.
+suite and no workflow run for any push. GitHub also recorded the `opened`
+`PullRequestEvent` for PR 1 at
+`989601cc49332045e093017c8f3c0828bf0abac4`, again with no check suite or workflow
+run.
 
 Repository checks found all workflows active, Actions enabled with all actions
 allowed, the default branch set to `main`, and both `validate.yml` and
@@ -150,11 +152,14 @@ allowed, the default branch set to `main`, and both `validate.yml` and
 no skip directive. Git authentication used username `netopsengineer` with a `gho_`
 OAuth credential, not the recursion-suppressed repository `GITHUB_TOKEN`. The
 repository Actions UI displayed no disablement, fork-approval, or policy warning.
+Both affected workflows were disabled and immediately re-enabled through the
+supported workflow API, then read back as active before the next PR synchronization
+event.
 
 Status: `BLOCKED`. Do not enable `SEMANTIC_RELEASE_ENABLED` or claim automatic
-delivery readiness until a direct push creates the expected workflow runs. Manual
-dispatch proves the workflow definitions and exact commit but does not prove the
-push trigger.
+delivery readiness until repository events create the expected workflow runs. Manual
+dispatch proves the workflow definitions and exact commit but does not prove
+automatic event delivery.
 
 ## Decisions taken on evidence
 
@@ -232,7 +237,7 @@ Every repository, App, secret, and environment operation used the active
 | Pending PyPI Trusted Publisher identity                | Requires authenticated PyPI project access               |
 | Dependabot auto-merge                                  | Deliberately disabled until all prerequisites are tested |
 | First semantic-release run proving an idempotent no-op | Requires `v0.1.0` to exist                               |
-| Automatic push-triggered workflow delivery             | Requires GitHub to create runs for direct main pushes    |
+| Automatic event-triggered workflow delivery            | Requires GitHub to create runs for push and PR events    |
 
 The exact-commit manual-dispatch workflows are green. Automatic push-triggered
-delivery remains blocked as recorded above.
+and pull-request-triggered delivery remains blocked as recorded above.
