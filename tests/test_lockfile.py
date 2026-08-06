@@ -36,13 +36,15 @@ def build_from(manifest_path: Path) -> tuple[BundleLock, bytes]:
 
 def test_serialization_matches_the_hand_authored_golden() -> None:
     lock, data = build_from(MANIFEST_FIXTURES / "minimal.toml")
-    escaped_source_dir = json.dumps(str(MODULE_FIXTURES), ensure_ascii=True)[1:-1]
-    expected = (
-        (GOLDEN / "minimal.lock.json.tmpl")
-        .read_text(encoding="utf-8")
-        .replace("__SOURCE_DIR__", escaped_source_dir)
-        .encode("utf-8")
-    )
+    expected_text = (GOLDEN / "minimal.lock.json.tmpl").read_text(encoding="utf-8")
+    for source_name in ("core.md", "python.md"):
+        escaped_source = json.dumps(
+            str(MODULE_FIXTURES / source_name), ensure_ascii=True
+        )[1:-1]
+        expected_text = expected_text.replace(
+            f"__SOURCE_DIR__/{source_name}", escaped_source
+        )
+    expected = expected_text.encode("utf-8")
     assert data == expected
     assert lockfile.lock_digest(lock) == lockfile.sha256_bytes(expected)
 
