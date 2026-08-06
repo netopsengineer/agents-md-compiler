@@ -36,10 +36,11 @@ def build_from(manifest_path: Path) -> tuple[BundleLock, bytes]:
 
 def test_serialization_matches_the_hand_authored_golden() -> None:
     lock, data = build_from(MANIFEST_FIXTURES / "minimal.toml")
+    escaped_source_dir = json.dumps(str(MODULE_FIXTURES), ensure_ascii=True)[1:-1]
     expected = (
         (GOLDEN / "minimal.lock.json.tmpl")
         .read_text(encoding="utf-8")
-        .replace("__SOURCE_DIR__", str(MODULE_FIXTURES))
+        .replace("__SOURCE_DIR__", escaped_source_dir)
         .encode("utf-8")
     )
     assert data == expected
