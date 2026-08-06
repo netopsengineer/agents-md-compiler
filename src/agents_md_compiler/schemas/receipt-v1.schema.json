@@ -1,0 +1,382 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/netopsengineer/agents-md-compiler/schemas/receipt-v1.schema.json",
+  "title": "agents-md-compiler install or rollback receipt, schema version 1",
+  "description": "Operational record of one mutation. Receipts carry timestamps because they are records, not deterministic compiler output. A receipt never contains policy content.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "receipt_schema_version",
+    "operation",
+    "operation_id",
+    "compiler_version",
+    "bundle_id",
+    "manifest_path",
+    "lock_path",
+    "target_path",
+    "manifest_sha256",
+    "lock_sha256",
+    "modules",
+    "previous_target",
+    "backup",
+    "completed_at",
+    "runtime_verification"
+  ],
+  "properties": {
+    "receipt_schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "install",
+        "rollback"
+      ]
+    },
+    "operation_id": {
+      "description": "Unique identifier for one mutation, used in receipt and backup file names.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8,64}$"
+    },
+    "compiler_version": {
+      "description": "Distribution version that performed the mutation.",
+      "type": "string",
+      "minLength": 1
+    },
+    "bundle_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "manifest_path": {
+      "$ref": "#/$defs/pathPair"
+    },
+    "lock_path": {
+      "$ref": "#/$defs/pathPair"
+    },
+    "target_path": {
+      "$ref": "#/$defs/pathPair"
+    },
+    "manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "lock_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "modules": {
+      "description": "Locked module identity at mutation time, in manifest order.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "sha256",
+          "size_bytes"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/identifier"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "previous_target": {
+      "description": "Target state immediately before the write, captured under the advisory lock.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "sha256",
+        "size_bytes",
+        "mode"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "MISSING",
+            "MANAGED",
+            "UNMANAGED"
+          ]
+        },
+        "sha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "mode": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/mode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "backup": {
+      "description": "Backup of the prior target bytes. Null when no previous target existed.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "installed": {
+      "description": "Bytes written by an install. Required for operation install.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "size_bytes",
+        "mode"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mode": {
+          "$ref": "#/$defs/mode"
+        }
+      }
+    },
+    "restored": {
+      "description": "Bytes restored by a rollback. Null when the rollback removed a generated target instead of restoring one.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "size_bytes",
+            "mode"
+          ],
+          "properties": {
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mode": {
+              "$ref": "#/$defs/mode"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_receipt": {
+      "description": "The install receipt this rollback consumed. Required for operation rollback.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "operation_id"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8,64}$"
+        }
+      }
+    },
+    "preserved_path": {
+      "description": "Where a generated target was moved when rollback had no backup to restore.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "completed_at": {
+      "description": "UTC completion time, second precision, Zulu suffix.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "runtime_verification": {
+      "description": "Codex prompt-input verification result when it was run as part of this operation.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "codex_version"
+          ],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "CURRENT",
+                "RUNTIME_UNVERIFIED"
+              ]
+            },
+            "codex_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "install"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "installed"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "restored"
+              ]
+            },
+            {
+              "required": [
+                "source_receipt"
+              ]
+            },
+            {
+              "required": [
+                "preserved_path"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "rollback"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "required": [
+          "restored",
+          "source_receipt",
+          "preserved_path"
+        ],
+        "not": {
+          "required": [
+            "installed"
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mode": {
+      "description": "Octal permission bits as written, for example 0600.",
+      "type": "string",
+      "pattern": "^0[0-7]{3,4}$"
+    },
+    "pathPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lexical",
+        "resolved"
+      ],
+      "properties": {
+        "lexical": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+schema_version = 1
+bundle_id = "fixture-three"
+default_target = "out/AGENTS.md"
+
+[[modules]]
+id = "core"
+source = "../modules/core.md"
+
+[[modules]]
+id = "python"
+source = "../modules/python.md"
+
+[[modules]]
+id = "extras"
+source = "../modules/extras.md"

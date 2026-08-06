@@ -1,0 +1,244 @@
+[build-system]
+# Bound verified live on 2026-08-06 against
+# https://docs.astral.sh/uv/concepts/build-backend/, which documents
+# `uv_build>=0.12.2,<0.13` as the current requirement. The uv 0.12.2 release
+# notes document no breaking configuration change. See
+# docs/dependency-verification.md.
+requires = ["uv_build>=0.12.2,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "agents-md-compiler"
+version = "0.1.0"
+description = "Compile ordered Markdown policy modules into one deterministic, verifiable global AGENTS.md."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "netopsengineer", email = "enterprise.code.developer@gmail.com" }]
+keywords = [
+    "agents-md",
+    "codex",
+    "agent",
+    "policy",
+    "compiler",
+    "deterministic",
+    "provenance",
+    "cli",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+# The runtime uses the standard library only. tomllib, hashlib, argparse, json,
+# fcntl/msvcrt, and pathlib cover every documented capability, so an installation
+# of this tool can never pull a transitive supply-chain dependency.
+dependencies = []
+
+[project.scripts]
+agents-md-compiler = "agents_md_compiler.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/netopsengineer/agents-md-compiler"
+Repository = "https://github.com/netopsengineer/agents-md-compiler"
+Issues = "https://github.com/netopsengineer/agents-md-compiler/issues"
+Changelog = "https://github.com/netopsengineer/agents-md-compiler/blob/main/CHANGELOG.md"
+
+[tool.uv.build-backend]
+module-name = "agents_md_compiler"
+module-root = "src"
+# The execution plan and the session goal file stay in Git as durable evidence but
+# must never ship. uv_build's sdist already includes only the module root plus
+# pyproject/readme/license, so these patterns are belt-and-braces: Phase 9 asserts
+# the real archive listings rather than trusting this configuration.
+source-exclude = [
+    "codex-global-agents-compiler-execution-plan.md",
+    "goal.md",
+    "docs/**",
+    "examples/**",
+    "scripts/**",
+    "tests/**",
+]
+
+[dependency-groups]
+# Every version below was resolved live on 2026-08-06 from PyPI plus the upstream
+# GitHub release and tag endpoints, and every one returned no OSV advisory. See
+# docs/dependency-verification.md for the evidence table.
+dev = [
+    "bandit>=1.9.4",
+    # Dev-only. The published JSON schemas are package data for editors and
+    # external validators; the runtime never validates with them, so this
+    # dependency exists purely to prove each schema accepts every valid fixture
+    # and rejects every invalid one.
+    "jsonschema>=4.26.0",
+    "prek>=0.4.12",
+    "pydoclint>=0.9.1",
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+    "pytest-xdist>=3.8.0",
+    # Must track the ruff-pre-commit hook rev in .pre-commit-config.yaml: the gate
+    # runs ruff twice (`uv run ruff check .` from this group, and the prek hook),
+    # and the two must agree on the rule set or the local and CI verdicts diverge
+    # (PY-CI-001).
+    "ruff>=0.16.1",
+    # Current release, no advisories. Keeping twine in the lock makes the metadata
+    # gate reproducible instead of resolving a floating uvx version at gate time.
+    # This pin is not required by the metadata version: uv_build 0.12.2 emits
+    # Metadata-Version 2.4 for this project, verified by reading METADATA out of the
+    # built wheel. See the correction in docs/dependency-verification.md.
+    "twine>=7.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+# Coverage is enforced on every run; source and branch settings live in
+# [tool.coverage]. A run below the 100% floor fails the gate. Use `--no-cov` for a
+# deliberate partial selector run where a sub-100 result is expected.
+addopts = "-q --cov --cov-report=term-missing"
+
+[tool.coverage.run]
+branch = true
+# Only the import package is measured. There is no separate compatibility entry
+# point: `python -m agents_md_compiler` resolves to src/agents_md_compiler/__main__.py,
+# which is already inside this source scope.
+source = ["agents_md_compiler"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# 100% line and branch is the enforced floor. Every statement and branch is either
+# exercised by a test or matched by one of the standard non-testable idioms below.
+# No bare `pragma: no cover` is used anywhere in this package to hide testable
+# behavior; the entry in this list exists only so the pattern is recognized if a
+# future platform-specific branch genuinely cannot be reached in CI, and adding one
+# requires the justification rules in AGENTS.md.
+fail_under = 100
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff.lint]
+# Families are named explicitly rather than inherited from ruff's default
+# selection, which is vendor-editorial and has narrowed across releases (ruff 0.16
+# dropped 18 pycodestyle/pyflakes rules from its defaults). Selecting families pins
+# the floor by intent: every member is enforced regardless of how ruff later
+# re-editorializes defaults. Do not expand this into individual codes -- codes get
+# renamed and removed (E999 already was), families do not. See PY-STYLE-001.
+#
+# UP lives here rather than in a separate pyupgrade hook so one tool owns the
+# syntax-upgrade gate (PY-PROJ-007); ruff infers the target from requires-python.
+# S is the flake8-bandit family: it overlaps Bandit deliberately and the split is
+# documented in AGENTS.md. BLE keeps every broad-except site honest, which matters
+# because this package converts filesystem and subprocess failures into typed
+# errors at explicit boundaries. PLC0415 requires every import to stay at module
+# scope unless a documented exception is necessary. DTZ protects the UTC receipt
+# timestamp contract against accidental naive datetime use.
+extend-select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "C4",
+    "PIE",
+    "RUF",
+    "S",
+    "LOG",
+    "G",
+    "PERF",
+    "BLE",
+    "DTZ",
+    "PLC0415",
+    "PTH",
+    "TRY",
+    "EM",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert liberally (pytest idiom), build deliberately hostile fixture paths,
+# and spawn real subprocesses to exercise the documented invocation forms. None of
+# that is a security finding in test code, so the whole flake8-bandit family is
+# exempted here. Test helpers also raise plain messages inline, so the EM/TRY
+# string-in-raise rules are noise there.
+"tests/*" = ["S", "EM", "TRY"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+# B404 (import subprocess) fires on the import alone with no call-site context.
+# Verifying Codex's model-visible prompt input requires invoking the `codex`
+# executable, so the import itself is never the risk. B603 still reviews each
+# actual call site, and every call passes an argument vector with shell=False.
+skips = ["B404"]
+
+[tool.pydoclint]
+style = "google"
+exclude = "\\.venv"
+# PY-STYLE-004: docstrings state meaning, units, invariants, side effects, and
+# raised conditions -- they do not restate annotations. Requiring types inside
+# docstrings would force exactly that duplication, so the docstring-type checks are
+# off while the argument-name, return-presence, and raises checks stay on.
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-yield-types = false
+# The exception taxonomy documents each error's structured constructor arguments in
+# __init__, next to the signature they describe, rather than duplicating them into
+# the class docstring. Both forms are valid Google style; this selects the one this
+# project uses so DOC301 does not fight it.
+allow-init-docstring = true
+
+[tool.pyright]
+pythonVersion = "3.14"
+pythonPlatform = "All"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]
+# Tests are type-checked too: they are the executable specification for this
+# package's public contracts, and an untyped test can silently stop proving them.
+# scripts/ holds the artifact and smoke gates that CI depends on, so it is held to
+# the same standard: a type error there would surface as a confusing CI failure.
+include = ["src", "tests", "scripts"]
+
+# python-semantic-release drives releases after v0.1.0 from Conventional-Commit
+# history on protected main: it bumps the static project.version, updates
+# CHANGELOG.md, tags, and cuts a GitHub Release. Version 0.1.0 itself is published
+# through the explicit workflow_dispatch bootstrap path in
+# .github/workflows/release.yml, because no prior release tag exists for PSR to
+# compare against. The build hook only keeps uv.lock synchronized with PSR's
+# version stamp before the release commit; the uv pin must match the release
+# workflow's setup-uv version.
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+build_command = """
+set -eu
+python -m pip install --disable-pip-version-check "uv==0.12.2"
+uv lock --upgrade-package "$PACKAGE_NAME"
+git add uv.lock
+"""
+commit_parser = "conventional"
+commit_message = "chore(release): {version}\n\nAutomatically generated by python-semantic-release"
+allow_zero_version = true
+tag_format = "v{version}"
+
+[tool.semantic_release.branches.main]
+match = "main"
+
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"

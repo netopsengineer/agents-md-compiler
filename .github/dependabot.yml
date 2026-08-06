@@ -1,0 +1,122 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/dependabot-2.0.json
+
+# Dependency maintenance for the three ecosystems this repository actually uses.
+#
+# Commit prefixes are `chore(deps)` everywhere on purpose. python-semantic-release
+# parses conventional commits on main, and a `fix:` or `feat:` prefix on a routine
+# dependency bump would cut a product release that has nothing to do with the
+# package's behavior. `chore` is a no-release type under that parser.
+#
+# Cooldowns were chosen per ecosystem against the documented support matrix:
+# `uv` supports the SemVer-bump options; `pre-commit` and GitHub Actions support only
+# `default-days`, so only that option appears for them.
+version: 2
+
+updates:
+  # -- Python development dependencies ----------------------------------
+  # The runtime has zero dependencies, so every update here is development-only and
+  # lands in [dependency-groups] plus uv.lock.
+  - package-ecosystem: uv
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    cooldown:
+      # A freshly published release has had no time to be yanked, found broken, or
+      # identified as a compromised maintainer account. Seven days is the floor the
+      # zizmor supply-chain audit requires; a major bump waits twice as long because
+      # it is the one most likely to carry a rewrite worth reviewing slowly.
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 7
+    groups:
+      # ruff's version must move together with the ruff-pre-commit hook rev, and the
+      # same is true for pydoclint and pyright. Grouping keeps a single reviewable
+      # change instead of a window where the direct command and the hook disagree.
+      lint-and-types:
+        patterns:
+          - ruff
+          - pydoclint
+          - pyright
+          - bandit
+      testing:
+        patterns:
+          - pytest
+          - "pytest-*"
+      packaging:
+        patterns:
+          - twine
+          - prek
+
+  # -- Pre-commit hooks --------------------------------------------------
+  # Every third-party rev in .pre-commit-config.yaml is an immutable commit SHA. If
+  # an update here proposes a mutable tag instead, the `check-pins` gate fails the
+  # pull request; regenerate the pins with `prek autoupdate` (update.freeze is set)
+  # rather than merging a tag.
+  - package-ecosystem: pre-commit
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(hooks)"
+    cooldown:
+      # pre-commit supports only default-days; the SemVer-bump options are not
+      # available for this ecosystem.
+      default-days: 7
+    groups:
+      hooks:
+        patterns:
+          - "*"
+
+  # -- GitHub Actions ----------------------------------------------------
+  # Dependabot rewrites both the SHA and its trailing tag comment for Actions, which
+  # is exactly the form `check-pins` requires.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(actions)"
+    cooldown:
+      # GitHub Actions supports only default-days; the SemVer-bump options are not
+      # available for this ecosystem.
+      default-days: 7
+    groups:
+      # These move as a set in practice, and a partial upgrade of the artifact pair
+      # is a known source of confusing failures.
+      artifact-actions:
+        patterns:
+          - actions/upload-artifact
+          - actions/download-artifact
+      # The release path is reviewed as one unit: a change to any of these affects
+      # how the package is published.
+      release-actions:
+        patterns:
+          - pypa/gh-action-pypi-publish
+          - python-semantic-release/python-semantic-release
+          - actions/create-github-app-token
+      all-other-actions:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - actions/upload-artifact
+          - actions/download-artifact
+          - pypa/gh-action-pypi-publish
+          - python-semantic-release/python-semantic-release
+          - actions/create-github-app-token

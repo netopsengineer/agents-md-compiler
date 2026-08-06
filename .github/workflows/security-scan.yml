@@ -1,0 +1,193 @@
+---
+# Security scanning. Split from validate.yml so a security finding is legible on its
+# own and so the scheduled run does not re-run the whole acceptance gate.
+#
+# Every `uses:` is an immutable commit SHA with a `# frozen:` tag comment, resolved
+# live and re-verified immediately before this file was written.
+name: security-scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so an advisory published against an unchanged lock is still found.
+    # Minute chosen off the hour to avoid the top-of-hour scheduling crowd.
+    - cron: "37 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.12.2"
+
+jobs:
+  # Bandit, actionlint, and zizmor run through the same pinned hooks as the local
+  # gate, so CI and a workstation enforce one rule set (PY-CI-001). These three hooks
+  # are file-driven, so `--all-files` genuinely covers the tree.
+  static-analysis:
+    name: static analysis (bandit, actionlint, zizmor)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Synchronize the locked environment
+        run: uv sync --locked
+
+      - name: Bandit
+        run: uv run prek run bandit --all-files
+
+      - name: actionlint
+        run: uv run prek run actionlint --all-files
+
+      - name: zizmor
+        run: uv run prek run zizmor --all-files
+
+  # The pinned gitleaks pre-commit hook runs `gitleaks git --pre-commit --staged`,
+  # which is correct at commit time but scans nothing when no change is staged. A
+  # "passed" line from that hook in CI would be false assurance, so this job runs
+  # gitleaks itself over the full history and the full working tree.
+  secrets:
+    name: secrets (gitleaks, full history)
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      # SHA-256 of gitleaks_8.30.1_linux_x64.tar.gz, taken from the signed checksums
+      # file published with the release and re-verified immediately before this file
+      # was written. The download is rejected unless it matches, so a replaced
+      # release asset cannot inject a different scanner (PY-SEC-009).
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          # Full history: a secret removed from the tip is still a leaked secret.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install the pinned gitleaks release
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          base="https://github.com/gitleaks/gitleaks/releases/download"
+          curl --fail --silent --show-error --location \
+            --output "$archive" \
+            "${base}/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" gitleaks
+          ./gitleaks version
+
+      - name: Scan the full commit history
+        # --redact keeps a finding's value out of the public log (PY-SEC-003).
+        run: ./gitleaks git --redact --verbose --no-banner .
+
+      - name: Scan the working tree
+        # `git` mode inspects commits; `dir` mode also catches an untracked or
+        # generated file that never reached a commit.
+        run: ./gitleaks dir --redact --verbose --no-banner .
+
+  # OSV.dev covers the resolved dependency set recorded in uv.lock. uv.lock has been
+  # a supported OSV-Scanner lockfile since scanner v2.0.0, so this is the blocking
+  # advisory gate for this project (PY-SEC-006).
+  #
+  # Upstream recommends the reusable workflow over calling the scanner action
+  # directly, because the action's own behavior may change in a patch release. The
+  # reusable workflow declares its own permissions, including security-events: write
+  # for the SARIF upload, which requires a public repository or GitHub Advanced
+  # Security. Repository visibility is set in Phase 14.
+  osv-scanner:
+    name: osv-scanner (repository and lockfile)
+    permissions:
+      actions: read # the reusable workflow reads run metadata to attach the SARIF
+      contents: read # required to check out the tree being scanned
+      security-events: write # required to upload the SARIF to code scanning
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # frozen: v2.3.8
+    with:
+      scan-args: |-
+        --recursive
+        ./
+      fail-on-vuln: true
+
+  # `uv audit` reads the same lock as the OSV job through uv's own advisory client.
+  # It is advisory here, not because a finding is acceptable, but because uv 0.12.2
+  # prints "uv audit is experimental and may change without warning": the execution
+  # plan gates this command on its interface being verified stable, and it is not.
+  # The blocking advisory gate is the osv-scanner job above, which covers the same
+  # resolved dependency set. Promote this to blocking when the command leaves preview.
+  dependency-audit:
+    name: dependency audit (uv audit, advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Audit the locked resolution
+        # --frozen audits exactly what is committed and never re-resolves.
+        run: uv audit --frozen
+
+  # Blocks a pull request that introduces a vulnerable or non-permitted dependency,
+  # before it reaches the lock on main. Requires the dependency graph, which is on by
+  # default for public repositories; on a private repository without GitHub Advanced
+  # Security this job cannot run and must be removed or made advisory rather than
+  # left failing.
+  dependency-review:
+    name: dependency review (pull requests)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # required to read the dependency graph for both refs
+      pull-requests: write # required to post the failure summary comment
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # frozen: v5.0.0
+        with:
+          fail-on-severity: low
+          comment-summary-in-pr: on-failure
+          # This package ships zero runtime dependencies, so any new runtime
+          # requirement is a deliberate decision that should be visible in review.
+          license-check: true

@@ -1,0 +1,25 @@
+---
+# Both templates above stay available, so this is false rather than forcing every
+# report through a link.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/netopsengineer/agents-md-compiler/security/advisories/new
+    about: >-
+      Report privately through a GitHub security advisory, never as a public issue.
+      This tool writes to a path that shapes an agent's behavior, so a containment or
+      rollback defect should not be public before it is fixed. See SECURITY.md.
+
+  - name: Frozen format and CLI contracts
+    url: https://github.com/netopsengineer/agents-md-compiler/tree/main/docs
+    about: >-
+      Before reporting unexpected output or an unexpected exit code, check the
+      documented contract: manifest-v1, rendered-format-v1, cli-contract, and
+      security-model specify the intended behavior exactly.
+
+  - name: Question about usage
+    url: https://github.com/netopsengineer/agents-md-compiler/discussions
+    about: >-
+      For "how do I" questions and design discussion. Please keep defect reports as
+      issues so they stay tracked.

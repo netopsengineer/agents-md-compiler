@@ -1,0 +1,19 @@
+# Example bundle manifest. Module order is output order and every module is
+# mandatory. Sources resolve against this file's directory, never the process
+# working directory.
+#
+# The companion lock pins each source's absolute resolved path, byte size, and
+# SHA-256 digest. Absolute paths make a committed lock machine-specific, so run
+# `agents-md-compiler lock --manifest examples/minimal/global-agents.toml` after
+# checking out this repository before using the example for real.
+schema_version = 1
+bundle_id = "example-global"
+default_target = "~/.codex/AGENTS.md"
+
+[[modules]]
+id = "core"
+source = "modules/core.md"
+
+[[modules]]
+id = "python"
+source = "modules/python.md"

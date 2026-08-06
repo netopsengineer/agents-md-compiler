@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/netopsengineer/agents-md-compiler/schemas/manifest-v1.schema.json",
+  "title": "agents-md-compiler bundle manifest, schema version 1",
+  "description": "Structure of a decoded manifest. The manifest itself is TOML; validate this schema against the decoded mapping. Filesystem, byte-level, and uniqueness rules cannot be expressed here and are enforced by the compiler, which is the authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "default_target",
+    "modules"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Manifest schema version. Only 1 exists.",
+      "type": "integer",
+      "const": 1
+    },
+    "bundle_id": {
+      "description": "Bundle identifier, interpolated into generated ASCII markers.",
+      "$ref": "#/$defs/identifier"
+    },
+    "default_target": {
+      "description": "Default install target. Resolved against the manifest directory. A leading tilde expands; nothing else does.",
+      "$ref": "#/$defs/nonEmptyPath"
+    },
+    "modules": {
+      "description": "Ordered, mandatory module list. Manifest order is output order.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/module"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "nonEmptyPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "description": "Module identifier, unique within the bundle.",
+          "$ref": "#/$defs/identifier"
+        },
+        "source": {
+          "description": "Path to one canonical Markdown source. Absolute, manifest-relative, or tilde-relative.",
+          "$ref": "#/$defs/nonEmptyPath"
+        }
+      }
+    }
+  }
+}

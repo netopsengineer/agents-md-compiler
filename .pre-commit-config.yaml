@@ -1,0 +1,204 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/pre-commit-config.json
+
+# Install hooks with `pre-commit install`, or `prek install -f` for the faster
+# compatible runner this project uses. `uv run prek run --all-files` is the
+# aggregate local gate and mirrors the CI gate job exactly.
+#
+# Every third-party `rev` is an immutable commit SHA with a `# frozen: <tag>`
+# comment. Each SHA was resolved live and re-verified immediately before this file
+# was written; the evidence is in docs/dependency-verification.md.
+
+default_language_version:
+  python: python3.14
+
+fail_fast: false
+
+# goal.md is operator-supplied session scaffolding, not a project artifact. Its
+# status-block template uses <placeholder> tokens that Markdown lint reads as inline
+# HTML, and rewriting an operator's directive to satisfy a linter would change the
+# directive. It is excluded rather than edited.
+exclude: |
+  (?x)^(
+    .venv/.*|
+    .vscode/.*|
+    .gitignore|
+    .dockerignore|
+    goal.md|
+  )$
+
+# Make `prek autoupdate` behave like Dependabot's pre-commit ecosystem: rewrite
+# `rev` to the new immutable commit SHA and refresh the `# frozen: <tag>` comment.
+# prek's `--freeze` defaults to FALSE, so without this a bare `prek autoupdate`
+# would replace every SHA below with a mutable tag, including repositories whose
+# version did not change, silently undoing the immutable pinning this file relies
+# on (PY-CI-003).
+#
+# Trade-off: vanilla pre-commit does not know this key and prints
+# `[WARNING] Unexpected key(s) present at root: update` on every invocation. That
+# is cosmetic; `pre-commit validate-config` still exits 0 and hooks still run.
+update:
+  freeze: true
+
+repos:
+  # -- General file hygiene ----------------------------------------------
+  # These enforce on this repository the same byte invariants the compiler
+  # enforces on canonical sources: no BOM, no mixed line endings, a final
+  # newline, no trailing whitespace.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: fix-byte-order-marker
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+      - id: pretty-format-json
+        args: ["--autofix", "--no-sort-keys"]
+        # The golden lock template and the committed example lock are byte-exact
+        # format artifacts. This hook's formatting matches the compiler's own
+        # serializer (two-space indent, ASCII-escaped, one final LF), so it is
+        # left enabled for them deliberately: if the two ever disagree, that is a
+        # real format defect and this gate is where it should surface.
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+        args: ["--unsafe"]
+      - id: check-ast
+
+  # Keeps a hook's pinned additional_dependencies honest when the same tool also
+  # appears elsewhere.
+  - repo: https://github.com/pre-commit/sync-pre-commit-deps
+    rev: 497f8ebf9d58162bb5898e3973a633d31d511169 # frozen: v0.0.5
+    hooks:
+      - id: sync-pre-commit-deps
+
+  # -- Markdown ----------------------------------------------------------
+  # A hermetic node environment managed by the hook runner, not `npx -y` at run
+  # time. The npx form installs an unpinned copy into the shared npm cache on
+  # every run and races concurrent installs; a pinned additional_dependencies
+  # resolves the package once at env-setup time into an isolated prefix, so the
+  # gate is deterministic and does not depend on shared mutable npm state
+  # (PY-CI-001). require_serial keeps one process even when the runner batches.
+  - repo: local
+    hooks:
+      - id: markdown-table-formatter
+        name: markdown-table-formatter
+        language: node
+        entry: markdown-table-formatter
+        additional_dependencies: ["markdown-table-formatter@1.7.0"]
+        types: [markdown]
+        require_serial: true
+
+  # Requires .markdownlint-cli2.jsonc at the repository root.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: b82a6c8896e491b9cb377a99ff3412131920681b # frozen: v0.23.2
+    hooks:
+      - id: markdownlint-cli2
+        args: ["--config", ".markdownlint-cli2.jsonc", "--fix"]
+        require_serial: true
+
+  # -- Python ------------------------------------------------------------
+  # Syntax upgrades (UP) are owned by ruff, not a separate pyupgrade hook, so one
+  # tool owns that gate (PY-PROJ-007). ruff infers the upgrade target from
+  # requires-python (>=3.14). This rev must track the `ruff` pin in
+  # [dependency-groups] so the hook and `uv run ruff check .` enforce the same
+  # rule set; otherwise the local and CI verdicts can diverge.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 39d9ac5938dadb73df0564a45f163e25ff9fa6e2 # frozen: v0.16.1
+    hooks:
+      - id: ruff-check
+        args: ["--fix", "--show-fixes"]
+      # ruff 0.16 formats Python inside Markdown fences by default, but the
+      # upstream hook selects only [python, pyi, jupyter], so `ruff format .`
+      # locally would cover files this hook did not. Adding markdown makes the
+      # hook's file set match the direct command's (PY-CI-001). No writer
+      # conflict: markdownlint-cli2 and markdown-table-formatter own document
+      # structure, ruff owns fence interiors.
+      - id: ruff-format
+        types_or: [python, pyi, jupyter, markdown]
+
+  - repo: https://github.com/jsh9/pydoclint
+    rev: cf8f4d0b81f933ebc5414acadcf7acdab705baa1 # frozen: 0.9.1
+    hooks:
+      - id: pydoclint
+        args: ["--config", "pyproject.toml"]
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: 392b6ba8e54be6d603e02e9f8d601d27b7a48d12 # frozen: v1.1.411
+    hooks:
+      - id: pyright
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: pyright-public-type-completeness
+        name: pyright public type completeness
+        # --verifytypes reports ambiguous public symbols but exits 0 by default;
+        # --warnings makes those diagnostics fail this gate. The project environment
+        # is required because verifytypes inspects the installed py.typed package.
+        language: system
+        entry: >-
+          uv run pyright --verifytypes agents_md_compiler --ignoreexternal --warnings
+        pass_filenames: false
+        always_run: true
+
+  # -- Supply-chain pinning ----------------------------------------------
+  # Proves every workflow `uses:` and every third-party hook `rev:` is a 40-hex
+  # commit SHA carrying the tag it came from. Without this, an automated dependency
+  # update that rewrites a pin to a mutable tag would pass review unnoticed, and
+  # Dependabot's pre-commit ecosystem is not documented to preserve SHA pins.
+  - repo: local
+    hooks:
+      - id: check-pins
+        name: check immutable pins
+        language: system
+        entry: uv run python scripts/check_pins.py
+        pass_filenames: false
+        always_run: true
+
+  # -- Tests -------------------------------------------------------------
+  # The full suite runs as a gate hook so `prek run` covers pytest alongside
+  # lint, type, and security. language: system uses this project's own uv
+  # environment, so the coverage floor in pyproject.toml applies here too.
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        language: system
+        entry: uv run pytest
+        pass_filenames: false
+        always_run: true
+
+  # -- Security ----------------------------------------------------------
+  # Bandit overlaps ruff's flake8-bandit (S) family on purpose. They disagree in
+  # useful ways: ruff evaluates syntax at the call site, Bandit adds
+  # confidence/severity ratings and a few checks ruff lacks. The single
+  # subprocess call site in this package carries both an `# noqa: S603` and a
+  # `# nosec B603` with the same stated reason, so neither tool is silenced
+  # project-wide and a future subprocess call would be flagged by both.
+  - repo: https://github.com/PyCQA/bandit
+    rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # frozen: 1.9.4
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml"]
+        exclude: ^tests/
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e # frozen: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # -- Workflow linting and security -------------------------------------
+  # actionlint (language: golang) and zizmor (language: python) make the single
+  # prek gate cover workflow correctness and workflow security too. prek manages
+  # the Go and Python toolchains these hooks need.
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # frozen: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: 451b56af716f9f0d0c2b816503a3fd0cf8b036fa # frozen: v1.29.0
+    hooks:
+      - id: zizmor

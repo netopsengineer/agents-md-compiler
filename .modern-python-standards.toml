@@ -1,0 +1,20 @@
+# Machine-readable Modern Python standards state (PY-PROJ-011).
+#
+# Agent-only compliance state. Python project metadata lives in pyproject.toml and
+# is not duplicated here. This file is excluded from both distributions because the
+# uv_build backend packages only src/agents_md_compiler.
+#
+# Every value is evidence-backed:
+#   - profiles: a distributable importable library (src/agents_md_compiler ships
+#     py.typed and a curated __all__) that is also a CLI (the agents-md-compiler
+#     console script, whose stdout JSON, stderr diagnostics, and exit codes are a
+#     documented contract in docs/cli-contract.md).
+#   - source-roots / test-roots: the real import and test roots
+#     ([tool.uv.build-backend] module-root = "src", [tool.pytest] testpaths = tests).
+#   - type-checker: pyright in strict mode with a required zero-error result.
+
+standard-version = "2026.08.1"
+profiles = ["library", "cli"]
+source-roots = ["src"]
+test-roots = ["tests"]
+type-checker = "pyright"

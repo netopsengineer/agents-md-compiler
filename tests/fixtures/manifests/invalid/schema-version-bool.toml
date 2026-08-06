@@ -1,0 +1,7 @@
+schema_version = true
+bundle_id = "fixture-bundle"
+default_target = "out/AGENTS.md"
+
+[[modules]]
+id = "core"
+source = "../modules/core.md"

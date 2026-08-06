@@ -1,0 +1,38 @@
+# Review ownership. Paired with branch protection requiring owner review, this makes
+# a change to a frozen format, a security boundary, or the release path impossible to
+# merge without the owner looking at it.
+#
+# Ownership is intentionally repository-wide first, then narrowed. A later matching
+# rule wins in CODEOWNERS, so the specific entries below are the operative ones for
+# the paths they name.
+
+*                           @netopsengineer
+
+# Frozen public contracts. The manifest schema, the rendered byte format, the CLI
+# contract, and the security model are versioned promises: changing one is a
+# compatibility decision, not an edit.
+/docs/manifest-v1.md        @netopsengineer
+/docs/rendered-format-v1.md @netopsengineer
+/docs/cli-contract.md       @netopsengineer
+/docs/security-model.md     @netopsengineer
+
+# The published JSON schemas ship as package data, so external validators depend on
+# their exact shape.
+/src/agents_md_compiler/schemas/ @netopsengineer
+
+# Trust boundaries in code: path containment, untrusted receipt parsing, advisory
+# locking, and atomic replacement.
+/src/agents_md_compiler/paths.py        @netopsengineer
+/src/agents_md_compiler/receipts.py     @netopsengineer
+/src/agents_md_compiler/locking.py      @netopsengineer
+/src/agents_md_compiler/atomic.py       @netopsengineer
+/src/agents_md_compiler/installation.py @netopsengineer
+
+# Supply chain and release. A change here can alter what gets published, with which
+# identity, from which bytes.
+/.github/workflows/         @netopsengineer
+/.github/dependabot.yml     @netopsengineer
+/.pre-commit-config.yaml    @netopsengineer
+/pyproject.toml             @netopsengineer
+/uv.lock                    @netopsengineer
+/scripts/                   @netopsengineer

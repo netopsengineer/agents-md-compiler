@@ -1,0 +1,326 @@
+---
+# The acceptance gate. Every `uses:` is an immutable commit SHA with a `# frozen:`
+# tag comment; each SHA was resolved live and re-verified immediately before this
+# file was written (docs/dependency-verification.md).
+#
+# This workflow runs the same commands as `uv run prek run --all-files` locally, from
+# a locked environment, and checks rather than rewrites the submitted tree
+# (PY-CI-001, PY-CI-002).
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Read-only by default. No job below elevates this.
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancel a main-branch run: its result is the record for that commit.
+  # Superseded pull-request runs are cancelled, because only the head matters.
+  group: validate-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Must match the uv pin in [tool.semantic_release].build_command so the release
+  # path and the gate resolve identically.
+  UV_VERSION: "0.12.2"
+  # The floor is declared in pyproject.toml and mirrored in this validation
+  # workflow; release.yml derives it directly from the declaration (PY-PROJ-002).
+  PYTHON_FLOOR: "3.14"
+  FORCE_COLOR: "1"
+
+jobs:
+  # 1. locked synchronization, 2. the complete prek gate, 3. test and coverage
+  # evidence, 4. strict type checking. These share one locked environment because
+  # each depends on the same resolved interpreter and dependency set.
+  gate:
+    name: gate (locked, prek, tests, types)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          # Audit rather than block: this job resolves Python, PyPI, npm, and Go
+          # toolchains through the hook runner, and an allowlist that lags any one
+          # of them would fail the gate for a reason unrelated to the change under
+          # test. Audit still records every destination for review.
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          # No job step needs the checkout token, so it is not left on disk.
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Synchronize the locked environment
+        run: uv sync --locked
+
+      - name: Prove the lock is already current
+        # `uv sync --locked` fails on a stale lock, but this states the requirement
+        # separately so the failure reads as "the lock needs regenerating".
+        run: uv lock --check
+
+      - name: Run the aggregate gate
+        run: uv run prek run --all-files --show-diff-on-failure --color always
+
+      - name: Tests with coverage evidence
+        # The 100 percent line-and-branch floor lives in [tool.coverage.report], so
+        # a coverage regression fails here without a separate threshold flag.
+        run: uv run pytest
+
+      - name: Strict type check
+        run: uv run pyright
+
+      - name: Public type completeness
+        # --verifytypes emits ambiguous-surface diagnostics with exit 0 unless
+        # --warnings requests a failing status for any reported diagnostic.
+        run: uv run pyright --verifytypes agents_md_compiler --ignoreexternal --warnings
+
+      - name: Fail on an uncommitted generator diff
+        # PY-CI-002. The hooks above apply fixes; if any of them changed a tracked
+        # file, the submitted tree was not gate-clean and must not pass.
+        run: git diff --exit-code
+
+  # 5. package build and metadata validation, 6. wheel-content inspection,
+  # 8. building a wheel from the sdist and comparing package contents.
+  artifacts:
+    name: artifacts (build, metadata, contents)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Synchronize the locked environment
+        run: uv sync --locked
+
+      - name: Build the sdist and the wheel
+        # --no-sources ignores any workspace or local source overrides, so the build
+        # sees exactly what a consumer installing from an index would (PY-PKG-010).
+        # uv builds the sdist first and then the wheel from that sdist.
+        run: uv build --no-sources
+
+      - name: Validate distribution metadata
+        run: uv run twine check --strict dist/*
+
+      - name: Inspect artifact contents
+        # Asserts the archives ship the package, py.typed, and the schemas, and that
+        # they ship no test, doc, example, script, workflow, or plan material
+        # (PY-PKG-006).
+        run: uv run python scripts/inspect_dist.py inspect dist
+
+      - name: Record the artifact inventory
+        run: uv run python scripts/inspect_dist.py inventory dist --output dist-inventory.json
+
+      - name: Build a wheel directly from the tree
+        run: uv build --wheel --no-sources --out-dir direct-wheel
+
+      - name: Compare the sdist-derived wheel with the direct wheel
+        # A difference here means the sdist omits something the wheel needs, which is
+        # the classic way an installable-from-Git package fails to install from PyPI.
+        run: |
+          uv run python scripts/inspect_dist.py compare \
+            dist/*.whl direct-wheel/*.whl
+
+      - name: Upload the distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # frozen: v7.0.1
+        with:
+          name: validate-dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist-inventory.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # 7. installation and CLI smoke tests from the wheel, 10. Linux, macOS, and
+  # Windows smoke coverage. The wheel is the exact artifact the artifacts job built,
+  # so repository layout cannot mask a packaging defect (PY-TEST-007).
+  smoke:
+    name: smoke (${{ matrix.os }})
+    needs: artifacts
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Harden the runner
+        # Linux supports block mode; macOS and Windows are audit-only upstream, so
+        # this step runs only where it is fully supported and is skipped elsewhere
+        # rather than pretending to enforce something it cannot.
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          # Only scripts/smoke.sh is needed from the repository. The package under
+          # test comes from the built wheel.
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Download the built distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # frozen: v8.0.1
+        with:
+          name: validate-dist
+          path: incoming
+
+      - name: Install the wheel into a clean environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv venv --python "${PYTHON_FLOOR}" fresh
+          # --no-cache proves the wheel installs from its own contents rather than
+          # from a warm cache entry, and the package declares no dependencies, so a
+          # successful install is also evidence that nothing crept into the runtime
+          # metadata.
+          VIRTUAL_ENV=fresh uv pip install --no-cache incoming/*.whl
+          echo "installed:"
+          VIRTUAL_ENV=fresh uv pip list
+
+      - name: Verify the interpreter is the declared floor
+        # 11. minimum supported Python. The floor is asserted on all three platforms
+        # rather than assumed from the setup step (PY-PROJ-002).
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            PY=fresh/Scripts/python.exe
+          else
+            PY=fresh/bin/python
+          fi
+          "$PY" -c "
+          import sys
+          want = tuple(int(part) for part in '${PYTHON_FLOOR}'.split('.'))
+          got = sys.version_info[:2]
+          print('interpreter', '.'.join(str(p) for p in got))
+          if got != want:
+              raise SystemExit(f'expected Python {want}, got {got}')
+          "
+
+      - name: Import the documented entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            PY=fresh/Scripts/python.exe
+          else
+            PY=fresh/bin/python
+          fi
+          # Both documented invocation forms must work from the installed wheel.
+          "$PY" -m agents_md_compiler --version
+          "$PY" -c "import agents_md_compiler as m; print(len(m.__all__), 'public names')"
+
+      - name: Run the end-to-end CLI smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            export PATH="$PWD/fresh/Scripts:$PATH"
+          else
+            export PATH="$PWD/fresh/bin:$PATH"
+          fi
+          version=$(agents-md-compiler --version)
+          bash scripts/smoke.sh "${RUNNER_TEMP}/smoke" "$version"
+
+  # 9. deterministic compiler golden tests. Separated from the gate job so a
+  # determinism regression is legible on its own, and run on all three platforms
+  # because byte-exact output across line-ending and filesystem differences is the
+  # property being claimed.
+  golden:
+    name: golden (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Harden the runner
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Synchronize the locked environment
+        run: uv sync --locked
+
+      - name: Golden format and determinism tests
+        # --no-cov because this is a deliberate partial selector run; the full suite
+        # in the gate job owns the coverage floor.
+        run: uv run pytest --no-cov -k "golden or deterministic or byte" -v
+
+  # 12. Python 3.15 prerelease signal. Advisory only while 3.15 is prerelease.
+  # 3.15 was at 3.15.0-beta.4 when this file was written, verified against
+  # actions/python-versions releases. When 3.15 reaches final release this job must
+  # be reclassified as required and added to the branch-protection check set, not
+  # left standing as a permanently ignorable signal.
+  prerelease:
+    name: prerelease signal (3.15, advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Resolve against the prerelease interpreter
+        # An ephemeral resolution, never the committed lock: 3.15 wheels may not
+        # exist yet for every development dependency. PY-PROJ-008 permits this
+        # precisely because the job states the strategy and does not write uv.lock.
+        run: |
+          set -euo pipefail
+          uv python install 3.15
+          uv run --python 3.15 --no-sources --isolated pytest --no-cov
+
+      - name: Confirm the committed lock was not rewritten
+        run: git diff --exit-code -- uv.lock

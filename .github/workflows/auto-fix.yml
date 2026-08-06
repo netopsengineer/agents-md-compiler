@@ -1,0 +1,121 @@
+---
+# Applies the repository's own fixing hooks to a branch and pushes the result.
+#
+# Deliberately narrow, because a workflow that writes to branches is a supply-chain
+# surface:
+#   - manual dispatch only, so nothing runs automatically on untrusted input;
+#   - refuses to target `main`, so it can never rewrite the release branch;
+#   - refuses a ref that is not an existing branch in this repository;
+#   - runs the same pinned hooks as the local gate, applying no other transformation;
+#   - pushes only when the hooks actually changed a tracked file.
+#
+# The acceptance gate stays in validate.yml. This workflow is a convenience for
+# mechanical fixes; it is not a substitute for a green gate, and its push retriggers
+# validate.yml on the branch.
+name: auto-fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Existing branch to fix. `main` is refused."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # One fix run per branch, and let a running one finish so a push is never half done.
+  group: auto-fix-${{ inputs.branch }}
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.12.2"
+
+jobs:
+  fix:
+    name: apply fixing hooks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to push the mechanical fix commit to the target branch
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - name: Validate the requested branch
+        env:
+          # Read through the environment so the value cannot be parsed as shell.
+          BRANCH: ${{ inputs.branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$BRANCH" = "main" ]; then
+            echo "auto-fix refuses to write to main. Open a branch instead." >&2
+            exit 1
+          fi
+          # A branch name is the only accepted form. Anything that could be read as a
+          # ref expression, a path, or an option is refused before checkout.
+          if ! printf '%s' "$BRANCH" | grep -Eq '^[A-Za-z0-9._/-]{1,255}$'; then
+            echo "refusing branch name '$BRANCH': unexpected characters" >&2
+            exit 1
+          fi
+          # A leading dash could be read as an option, and `..` covers every traversal
+          # form including `/../`.
+          case "$BRANCH" in
+            -*|*..*) echo "refusing suspicious branch name '$BRANCH'" >&2; exit 1 ;;
+            *) ;;
+          esac
+          # The branch must already exist. This workflow fixes existing work; it does
+          # not create branches.
+          if ! gh api "repos/${GITHUB_REPOSITORY}/branches/${BRANCH}" >/dev/null 2>&1; then
+            echo "branch '$BRANCH' does not exist in ${GITHUB_REPOSITORY}" >&2
+            exit 1
+          fi
+          echo "target branch: $BRANCH"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          ref: ${{ inputs.branch }}
+          # Retained deliberately: this job pushes the fix commit back to the branch.
+          persist-credentials: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Synchronize the locked environment
+        run: uv sync --locked
+
+      - name: Apply the fixing hooks
+        # The hooks that rewrite files are the formatters and the Markdown tools. A
+        # non-zero exit is expected here precisely when something was fixed, so the
+        # result is inspected through `git status` rather than through this exit code.
+        continue-on-error: true
+        run: uv run prek run --all-files --color always
+
+      - name: Commit and push only if something changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "::notice::The hooks changed nothing. Nothing to push."
+            exit 0
+          fi
+          echo "changed files:"
+          git diff --name-only
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # `chore` so this commit never triggers a product release.
+          git commit -m "chore: apply automated formatting and lint fixes"
+          git push
+
+      - name: Restate that the gate still owns acceptance
+        run: |
+          echo "::notice::Mechanical fixes applied. validate.yml decides whether the" \
+               "branch is acceptable; a fix commit is not an approval."

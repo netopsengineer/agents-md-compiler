@@ -1,0 +1,46 @@
+{
+  "receipt_schema_version": 1,
+  "operation": "install",
+  "operation_id": "0123456789abcdef0123456789abcdef",
+  "compiler_version": "0.1.0",
+  "bundle_id": "fixture-bundle",
+  "manifest_path": {
+    "lexical": "global-agents.toml",
+    "resolved": "/example/policy/global-agents.toml"
+  },
+  "lock_path": {
+    "lexical": "global-agents.toml.lock.json",
+    "resolved": "/example/policy/global-agents.toml.lock.json"
+  },
+  "target_path": {
+    "lexical": "~/.codex/AGENTS.md",
+    "resolved": "/example/home/.codex/AGENTS.md"
+  },
+  "manifest_sha256": "4e089bbdf4df3d14082ef2000409de0248ea802acfb9c8da7f35529bb576ede2",
+  "lock_sha256": "8c192586346d7897630b628b5ba7d9979a403b34f3019288aa9f86587550fadf",
+  "modules": [
+    {
+      "id": "core",
+      "sha256": "8c192586346d7897630b628b5ba7d9979a403b34f3019288aa9f86587550fadf",
+      "size_bytes": 122
+    }
+  ],
+  "previous_target": {
+    "state": "UNMANAGED",
+    "sha256": "6383f4a74cf4f18abbd89d299020332af93d6b366f891d4424290e0d99a7311d",
+    "size_bytes": 16743,
+    "mode": "0644"
+  },
+  "backup": {
+    "path": "/example/state/agents-md-compiler/fixture-bundle/backups/20260804T210000Z.6383f4a74cf4f18abbd89d299020332af93d6b366f891d4424290e0d99a7311d.bak",
+    "sha256": "6383f4a74cf4f18abbd89d299020332af93d6b366f891d4424290e0d99a7311d",
+    "size_bytes": 16743
+  },
+  "installed": {
+    "sha256": "b805bf119361750da820d713809743a20ec70ecfe155470ef9c5d7637623438d",
+    "size_bytes": 142,
+    "mode": "0644"
+  },
+  "completed_at": "2026-08-04T21:00:00Z",
+  "runtime_verification": null
+}
