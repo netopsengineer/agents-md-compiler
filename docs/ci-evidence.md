@@ -95,9 +95,9 @@ GitHub failure is therefore safe and does not republish.
 
 ## Validation results
 
-Run on 2026-08-06 against the staged initial tree after the approved uv 0.12.2
-update. GitHub Actions must reproduce these results on the exact commit selected
-for bootstrap publication.
+Run locally on 2026-08-06 after the approved uv 0.12.2 update, then reproduced by
+GitHub Actions on exact commit
+`7278d871753990643c0fe2494cfd5d46740b7deb`.
 
 | Check                                                | Result                                                |
 |------------------------------------------------------|-------------------------------------------------------|
@@ -112,7 +112,20 @@ for bootstrap publication.
 | Wheel from sdist vs wheel from tree                  | 27 shared members, byte-identical whole files         |
 | `uv run twine check --strict`                        | both artifacts passed                                 |
 
-Artifact inventory from the fresh local build:
+Exact-commit GitHub Actions results:
+
+| Workflow        | Run ID        | Trigger             | Result  | Material evidence                                                                                                 |
+|-----------------|---------------|---------------------|---------|-------------------------------------------------------------------------------------------------------------------|
+| `validate`      | `31128951491` | `workflow_dispatch` | success | aggregate gate, 100 percent coverage, strict types, three golden platforms, three installed-wheel smoke platforms |
+| `security-scan` | `31128951886` | `workflow_dispatch` | success | Bandit, actionlint, zizmor, full-history gitleaks, OSV lock/repository scan, SARIF upload                         |
+
+The dependency-review job was skipped as designed because the security run was not
+a pull request event. The advisory Python 3.15 job succeeded. The validation run
+uploaded artifact `8975201094` as `validate-dist`; its retention deadline is
+2026-08-13.
+
+Artifact inventory from both the fresh local build and the exact downloaded CI
+artifact:
 
 | Artifact                                    | Size  | SHA-256                                                            |
 |---------------------------------------------|-------|--------------------------------------------------------------------|
@@ -123,6 +136,25 @@ The wheel was installed with cache disabled into a clean CPython 3.14.6
 environment. The environment contained only `agents-md-compiler==0.1.0`, both
 documented invocation forms worked, all 51 public API names imported, and
 `scripts/smoke.sh` reported `smoke: all assertions passed`.
+
+### Push-trigger delivery defect
+
+GitHub recorded direct `PushEvent` entries from actor `netopsengineer` for the
+initial commit and subsequent corrections on `refs/heads/main`, but created no check
+suite and no workflow run for any push. The latest affected SHA is
+`7278d871753990643c0fe2494cfd5d46740b7deb`.
+
+Repository checks found all workflows active, Actions enabled with all actions
+allowed, the default branch set to `main`, and both `validate.yml` and
+`security-scan.yml` configured for `push.branches: [main]`. The commit messages have
+no skip directive. Git authentication used username `netopsengineer` with a `gho_`
+OAuth credential, not the recursion-suppressed repository `GITHUB_TOKEN`. The
+repository Actions UI displayed no disablement, fork-approval, or policy warning.
+
+Status: `BLOCKED`. Do not enable `SEMANTIC_RELEASE_ENABLED` or claim automatic
+delivery readiness until a direct push creates the expected workflow runs. Manual
+dispatch proves the workflow definitions and exact commit but does not prove the
+push trigger.
 
 ## Decisions taken on evidence
 
@@ -178,23 +210,29 @@ Verified through the active `netopsengineer` session on 2026-08-06:
   repository;
 - repository secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` exist;
 - protected environment `pypi` requires review by `netopsengineer`;
+- active repository ruleset `protect-main` has ID `20529695` and targets only
+  `refs/heads/main`;
 - repository variable `SEMANTIC_RELEASE_ENABLED` is absent;
 - secret scanning and push protection are enabled.
+
+The active ruleset blocks deletion and force pushes, requires linear history,
+squash-only pull requests, one current CODEOWNER approval, resolved review threads,
+and 12 strict GitHub Actions checks. The `netopsengineer` user bypass is limited to
+pull requests. The `compiler-release-bot` integration is the only always bypass, so
+the release workflow can create its reviewed semantic-release commit without giving
+the App administration or workflow permissions.
 
 Every repository, App, secret, and environment operation used the active
 `netopsengineer` account.
 
 ## Not verified, and why
 
-| Item                                                   | Blocking dependency                                        |
-|--------------------------------------------------------|------------------------------------------------------------|
-| GitHub Actions workflow results                        | Requires the initial commit and push                       |
-| Branch protection and required status checks           | Requires check contexts from the first workflow run        |
-| Pending PyPI Trusted Publisher identity                | Requires authenticated PyPI project access                 |
-| Dependabot auto-merge                                  | Deliberately disabled until all prerequisites are tested   |
-| SARIF upload to code scanning                          | Requires the first public-repository security workflow run |
-| First semantic-release run proving an idempotent no-op | Requires `v0.1.0` to exist                                 |
+| Item                                                   | Blocking dependency                                      |
+|--------------------------------------------------------|----------------------------------------------------------|
+| Pending PyPI Trusted Publisher identity                | Requires authenticated PyPI project access               |
+| Dependabot auto-merge                                  | Deliberately disabled until all prerequisites are tested |
+| First semantic-release run proving an idempotent no-op | Requires `v0.1.0` to exist                               |
+| Automatic push-triggered workflow delivery             | Requires GitHub to create runs for direct main pushes    |
 
-Because no workflow has run, every statement above is about workflow definitions,
-pins, permissions, and locally reproduced gates. It does not claim that a GitHub
-Actions run has succeeded.
+The exact-commit manual-dispatch workflows are green. Automatic push-triggered
+delivery remains blocked as recorded above.
