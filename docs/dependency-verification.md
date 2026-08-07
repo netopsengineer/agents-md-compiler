@@ -384,6 +384,51 @@ OSV returned zero advisories for
 | Action advisory status            | OSV.dev batch query     | Exact selected Action versions                                                               | Zero advisories for both Actions       |
 | Version, SHA, or permission delta | Local diff              | Workflow configuration                                                                       | None; inputs and cache ownership only  |
 
+## Release-policy Action re-verification
+
+Verified live on 2026-08-07 before changing `release.yml`. Both
+`/releases/latest` and `/tags` were checked for every Action used by that
+workflow. Every newest release and newest tag agreed with the existing frozen
+comment and immutable SHA; no Action version or pin changed.
+
+| Action                                            | Current tag | Immutable SHA                              | Live sources                                                                                                                                                                                                  |
+|---------------------------------------------------|-------------|--------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `actions/checkout`                                | `v7.0.1`    | `3d3c42e5aac5ba805825da76410c181273ba90b1` | [release](https://api.github.com/repos/actions/checkout/releases/latest), [tags](https://api.github.com/repos/actions/checkout/tags?per_page=5)                                                               |
+| `actions/create-github-app-token`                 | `v3.2.0`    | `bcd2ba49218906704ab6c1aa796996da409d3eb1` | [release](https://api.github.com/repos/actions/create-github-app-token/releases/latest), [tags](https://api.github.com/repos/actions/create-github-app-token/tags?per_page=5)                                 |
+| `actions/download-artifact`                       | `v8.0.1`    | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | [release](https://api.github.com/repos/actions/download-artifact/releases/latest), [tags](https://api.github.com/repos/actions/download-artifact/tags?per_page=5)                                             |
+| `actions/upload-artifact`                         | `v7.0.1`    | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | [release](https://api.github.com/repos/actions/upload-artifact/releases/latest), [tags](https://api.github.com/repos/actions/upload-artifact/tags?per_page=5)                                                 |
+| `astral-sh/setup-uv`                              | `v9.0.0`    | `c771a70e6277c0a99b617c7a806ffedaca235ff9` | [release](https://api.github.com/repos/astral-sh/setup-uv/releases/latest), [tags](https://api.github.com/repos/astral-sh/setup-uv/tags?per_page=5)                                                           |
+| `pypa/gh-action-pypi-publish`                     | `v1.14.2`   | `dc37677b2e1c63e2034f94d8a5b11f265b73ba33` | [release](https://api.github.com/repos/pypa/gh-action-pypi-publish/releases/latest), [tags](https://api.github.com/repos/pypa/gh-action-pypi-publish/tags?per_page=5)                                         |
+| `python-semantic-release/python-semantic-release` | `v10.6.1`   | `39dd2052f2ce8282a5d932c31d58a2ca06d2550e` | [release](https://api.github.com/repos/python-semantic-release/python-semantic-release/releases/latest), [tags](https://api.github.com/repos/python-semantic-release/python-semantic-release/tags?per_page=5) |
+| `step-security/harden-runner`                     | `v2.20.1`   | `b09bb98e06d4d774595224525879c09bc6e98c40` | [release](https://api.github.com/repos/step-security/harden-runner/releases/latest), [tags](https://api.github.com/repos/step-security/harden-runner/tags?per_page=5)                                         |
+
+The exact pinned
+[python-semantic-release action metadata](https://github.com/python-semantic-release/python-semantic-release/blob/39dd2052f2ce8282a5d932c31d58a2ca06d2550e/action.yml)
+declares the `commit`, `tag`, `push`, `changelog`, `vcs_release`, `build`, and
+`force` inputs used by the corrected workflow. Inspection of the pinned action
+implementation confirmed that `tag: false` maps to `--no-tag` and
+`vcs_release: false` maps to `--no-vcs-release`, while `commit: true` and
+`push: true` retain the prepared version commit on protected main. The action's
+`commit_sha` output is populated only while creating a tag, so the workflow
+records `git rev-parse HEAD` after preparation instead of trusting an empty
+output when tagging is disabled.
+
+The exact selected versions of checkout, App-token, upload-artifact, setup-uv,
+and python-semantic-release had no OSV advisory. OSV returned historical
+advisories for download-artifact fixed by 4.1.3, PyPI publish fixed by 1.13.0,
+and harden-runner ranges ending at or before 2.16.0. The selected versions
+8.0.1, 1.14.2, and 2.20.1 are later and are not affected. Advisory records:
+[download-artifact](https://osv.dev/vulnerability/GHSA-cxww-7g56-2vh6),
+[PyPI publish 1](https://osv.dev/vulnerability/GHSA-vxmw-7h4f-hqxh),
+[PyPI publish 2](https://osv.dev/vulnerability/GHSA-46g3-37rh-v698),
+[PyPI publish 3](https://osv.dev/vulnerability/GHSA-cpmj-h4f6-r6pq),
+[PyPI publish 4](https://osv.dev/vulnerability/GHSA-g699-3x6g-wm3g),
+[harden-runner 1](https://osv.dev/vulnerability/GHSA-g85v-wf27-67xc), and
+[harden-runner 2](https://osv.dev/vulnerability/GHSA-mxr3-8whj-j74r).
+
+Decision: retain every existing Action version and immutable SHA. The release
+correction changes policy and action inputs only, with no dependency migration.
+
 ## Public identity
 
 | Check                                         | Method                                                          | Result                                      |

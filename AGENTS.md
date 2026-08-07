@@ -204,13 +204,27 @@ Ordered, and no gate may be skipped:
 2. CI required checks green on the exact commit;
 3. artifact gates green, including installed-wheel smoke tests;
 4. `SEMANTIC_RELEASE_ENABLED` false or absent until `v0.1.0` exists;
-5. version `0.1.0` published only through the `workflow_dispatch` bootstrap path,
+5. allow an automatic semantic release only when the exact pushed change set
+   contains `LICENSE`, `README.md`, `pyproject.toml`, or a path under
+   `src/agents_md_compiler/`;
+6. require an explicit `workflow_dispatch` `release` operation and semantic level
+   for an intentional repository-only publication;
+7. allow python-semantic-release to push only the version and changelog commit;
+   prohibit it from creating the tag or GitHub release;
+8. rerun the aggregate gate against the exact prepared semantic-release commit
+   before building or publishing it;
+9. publish version `0.1.0` only through the `workflow_dispatch` bootstrap path,
    with operator approval on the protected `pypi` environment after the exact
    downloaded artifact passes local gates;
-6. no checkout, dependency install, or rebuild in the publish job;
-7. OIDC Trusted Publishing with PEP 740 attestations and no long-lived token;
-8. tag and GitHub release created only after publication succeeds, idempotently;
-9. never move or replace an existing tag.
+10. perform no checkout, dependency install, or rebuild in the publish job;
+11. use OIDC Trusted Publishing with PEP 740 attestations and no long-lived token;
+12. create the tag and GitHub release only after publication succeeds,
+    idempotently;
+13. recover a successful publication with failed finalization only through the
+    `workflow_dispatch` `recover` path, after verifying the exact version,
+    prepared main commit, public wheel and sdist digests, and PyPI provenance;
+    never republish in recovery;
+14. never move or replace an existing tag.
 
 ## Failure and recovery
 
@@ -224,6 +238,7 @@ Ordered, and no gate may be skipped:
 | Post-install gate failure                  | Preserve evidence, confirm the target still matches the receipt, run receipt-based rollback, verify the restored digest, stop in `ROLLED_BACK`             |
 | Codex debug command missing or changed     | Return `RUNTIME_UNVERIFIED` with the exact command and observed failure; never invent a log parser and never ask a model to summarize its own instructions |
 | Golden file mismatch                       | Treat as a format change and follow the format-version procedure                                                                                           |
+| PyPI succeeds but finalization fails       | Dispatch `recover` with the exact version and prepared commit; verify main ancestry and public PyPI files, then create only missing tag or release state   |
 
 Rollback restores exact prior bytes only when the target still matches the
 receipt's installed digest. Backups are never deleted automatically.

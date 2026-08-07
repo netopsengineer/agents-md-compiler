@@ -1,13 +1,15 @@
-"""Assert immutable automation pins and safe Dependabot label configuration.
+"""Assert immutable automation pins and release workflow boundaries.
 
-Three things must hold for this repository's supply chain (PY-CI-003, PY-SEC-009):
+Four things must hold for this repository's supply chain (PY-CI-003, PY-SEC-009):
 
 - every ``uses:`` in a workflow names a 40-hex commit SHA, with a trailing comment
   recording which tag that SHA came from; and
 - every third-party ``rev:`` in ``.pre-commit-config.yaml`` is a 40-hex commit SHA
   carrying a ``# frozen: <tag>`` comment; and
 - ``.github/dependabot.yml`` omits custom ``labels`` so GitHub creates and applies
-  Dependabot's default labels without repository provisioning.
+  Dependabot's default labels without repository provisioning; and
+- ``release.yml`` preserves the package-change eligibility gate, separates release
+  preparation from public finalization, and keeps publication minimal.
 
 These controls are easy to satisfy by hand and easy to lose by accident. An automated
 dependency update that rewrites a pin to a mutable tag would silently undo the
@@ -20,7 +22,8 @@ labels. It does not prove a SHA still corresponds to its tag, which requires net
 access and is recorded in docs/dependency-verification.md.
 
 Line-oriented matching is deliberate rather than a YAML parse: tag evidence lives in
-comments, while the forbidden Dependabot key is unambiguous on an active YAML line.
+comments, while the protected workflow fragments and forbidden Dependabot key are
+unambiguous on active YAML lines.
 """
 
 import argparse
@@ -48,6 +51,8 @@ VERSION_IN_COMMENT = re.compile(r"v?\d+\.\d+")
 # Custom labels override Dependabot's defaults and must be provisioned separately.
 # Quoted keys and flow mappings are accepted YAML and must not bypass the gate.
 DEPENDABOT_LABELS = re.compile(r"(?:^|[^A-Za-z0-9_-])(?:labels|['\"]labels['\"])\s*:")
+
+WORKFLOW_JOB = re.compile(r"^  (?P<name>[A-Za-z0-9_-]+):\s*$")
 
 
 def check_workflow(path: Path) -> list[str]:
@@ -166,6 +171,142 @@ def check_dependabot(path: Path) -> list[str]:
     return findings
 
 
+def _workflow_jobs(text: str) -> dict[str, str]:
+    """Return the top-level job blocks from a GitHub Actions workflow.
+
+    Args:
+        text: Workflow text.
+
+    Returns:
+        Mapping from job identifier to its complete textual block.
+    """
+    jobs: dict[str, list[str]] = {}
+    current: str | None = None
+    in_jobs = False
+    for line in text.splitlines(keepends=True):
+        if line.rstrip() == "jobs:":
+            in_jobs = True
+            continue
+        if not in_jobs:
+            continue
+        match = WORKFLOW_JOB.fullmatch(line.rstrip("\r\n"))
+        if match is not None:
+            name = match.group("name")
+            current = name
+            jobs[name] = [line]
+        elif current is not None:
+            jobs[current].append(line)
+    return {name: "".join(lines) for name, lines in jobs.items()}
+
+
+def check_release_workflow(path: Path) -> list[str]:
+    """Check release ordering and privilege boundaries in ``release.yml``.
+
+    The checks intentionally cover the high-risk invariants whose accidental
+    removal could publish an unnecessary package or create a public release claim
+    before PyPI accepts the artifact. General YAML validity remains actionlint's
+    responsibility.
+
+    Args:
+        path: Release workflow file to check.
+
+    Returns:
+        Human-readable findings, empty when every release invariant is present.
+    """
+    text = path.read_text(encoding="utf-8")
+    jobs = _workflow_jobs(text)
+    findings: list[str] = []
+
+    required_jobs = {
+        "resolve",
+        "semantic-release",
+        "gate-prepared",
+        "publish",
+        "verify-recovery",
+        "finalize",
+    }
+    findings.extend(
+        f"{path}: required release job `{name}` is missing"
+        for name in sorted(required_jobs - jobs.keys())
+    )
+    if findings:
+        return findings
+
+    required_fragments = {
+        "resolve": (
+            "scripts/release_policy.py",
+            "steps.package-policy.outputs.package_changes",
+            '"chore(release): "*',
+        ),
+        "semantic-release": (
+            "python-semantic-release/python-semantic-release@",
+            "commit: true",
+            "tag: false",
+            "push: true",
+            "vcs_release: false",
+        ),
+        "gate-prepared": (
+            "ref: ${{ needs.semantic-release.outputs.commit }}",
+            "uv run prek run --all-files --show-diff-on-failure --color always",
+            "uv run pytest",
+            "uv run pyright",
+        ),
+        "publish": (
+            "id-token: write",
+            "pypa/gh-action-pypi-publish@",
+            "attestations: true",
+        ),
+        "verify-recovery": (
+            "needs.resolve.outputs.path == 'recover'",
+            "https://pypi.org/pypi/agents-md-compiler/",
+            "https://pypi.org/integrity/agents-md-compiler/",
+        ),
+        "finalize": (
+            "needs: [resolve, build, publish, verify-recovery]",
+            "needs.publish.result == 'success'",
+            "needs.verify-recovery.result == 'success'",
+            "repos/${GITHUB_REPOSITORY}/git/refs",
+            "repos/${GITHUB_REPOSITORY}/releases",
+        ),
+    }
+    for job_name, fragments in required_fragments.items():
+        block = jobs[job_name]
+        findings.extend(
+            f"{path}: `{job_name}` is missing required release control {fragment!r}"
+            for fragment in fragments
+            if fragment not in block
+        )
+
+    publish_forbidden = (
+        "actions/checkout@",
+        "pip install",
+        "uv sync",
+        "uv build",
+    )
+    findings.extend(
+        f"{path}: `publish` contains forbidden build capability {fragment!r}"
+        for fragment in publish_forbidden
+        if fragment in jobs["publish"]
+    )
+
+    oidc_permissions = re.findall(r"(?m)^\s+id-token:\s*write(?:\s*#.*)?$", text)
+    if len(oidc_permissions) != 1:
+        findings.append(
+            f"{path}: `id-token: write` must appear exactly once, in `publish`"
+        )
+    if "needs.gate-prepared.result == 'success'" not in jobs.get("build", ""):
+        findings.append(f"{path}: `build` must require the exact prepared-commit gate")
+    tag_create = 'gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs"'
+    if text.count(tag_create) != 1 or tag_create not in jobs["finalize"]:
+        findings.append(f"{path}: tag creation must appear exactly once, in `finalize`")
+    release_create = 'gh api --method POST "repos/${GITHUB_REPOSITORY}/releases"'
+    if text.count(release_create) != 1 or release_create not in jobs["finalize"]:
+        findings.append(
+            f"{path}: GitHub release creation must appear exactly once, in `finalize`"
+        )
+    return findings
+
+
 def resolve(
     paths: Sequence[Path],
 ) -> tuple[list[Path], list[Path], list[Path]]:
@@ -228,6 +369,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     findings: list[str] = []
     for path in workflows:
         findings += check_workflow(path)
+        if path.name == "release.yml":
+            findings += check_release_workflow(path)
     for path in configs:
         findings += check_pre_commit(path)
     for path in dependabot_configs:
@@ -244,7 +387,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     print(
         f"check_pins: {checked} file(s) checked, pins are immutable and "
-        "Dependabot uses automatic labels"
+        "release boundaries and automatic Dependabot labels are intact"
     )
     return 0
 

@@ -102,6 +102,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 filterwarnings = ["error"]
 # Coverage is enforced on every run; source and branch settings live in
 # [tool.coverage]. A run below the 100% floor fails the gate. Use `--no-cov` for a
@@ -218,12 +219,13 @@ include = ["src", "tests", "scripts"]
 
 # python-semantic-release drives releases after v0.1.0 from Conventional-Commit
 # history on protected main: it bumps the static project.version, updates
-# CHANGELOG.md, tags, and cuts a GitHub Release. Version 0.1.0 itself is published
-# through the explicit workflow_dispatch bootstrap path in
-# .github/workflows/release.yml, because no prior release tag exists for PSR to
-# compare against. The build hook only keeps uv.lock synchronized with PSR's
-# version stamp before the release commit; the uv pin must match the release
-# workflow's setup-uv version.
+# CHANGELOG.md, and pushes that prepared commit. The release workflow prohibits
+# PSR from creating a tag or GitHub release; one shared finalizer creates both
+# only after PyPI accepts the artifact. Version 0.1.0 itself is published through
+# the explicit workflow_dispatch bootstrap path because no prior release tag
+# exists for PSR to compare against. The build hook only keeps uv.lock
+# synchronized with PSR's version stamp before the release commit; the uv pin
+# must match the release workflow's setup-uv version.
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 build_command = """
