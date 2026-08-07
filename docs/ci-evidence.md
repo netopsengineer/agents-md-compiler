@@ -93,11 +93,28 @@ The bootstrap path creates the tag and the GitHub release only after PyPI accept
 upload, and refuses to move a tag that already exists. Re-running after a transient
 GitHub failure is therefore safe and does not republish.
 
+## PyPI Trusted Publisher
+
+Verified through the authenticated `netopsengineer` PyPI session on 2026-08-06. The
+pending publisher has this exact identity:
+
+| Field            | Value                                 |
+|------------------|---------------------------------------|
+| Project          | `agents-md-compiler`                  |
+| Publisher        | GitHub                                |
+| Owner/repository | `netopsengineer/agents-md-compiler`   |
+| Workflow         | `release.yml`                         |
+| Environment      | `pypi`                                |
+| Authentication   | OIDC Trusted Publishing; no API token |
+
+The pending publisher will become the project's ordinary trusted publisher when the
+bootstrap workflow creates the project with its first accepted upload.
+
 ## Validation results
 
-Run on 2026-08-06 against the staged initial tree after the approved uv 0.12.2
-update. GitHub Actions must reproduce these results on the exact commit selected
-for bootstrap publication.
+Run locally on 2026-08-06 after the approved uv 0.12.2 update, then reproduced by
+GitHub Actions on exact commit
+`7278d871753990643c0fe2494cfd5d46740b7deb`.
 
 | Check                                                | Result                                                |
 |------------------------------------------------------|-------------------------------------------------------|
@@ -112,7 +129,20 @@ for bootstrap publication.
 | Wheel from sdist vs wheel from tree                  | 27 shared members, byte-identical whole files         |
 | `uv run twine check --strict`                        | both artifacts passed                                 |
 
-Artifact inventory from the fresh local build:
+Exact-commit GitHub Actions results:
+
+| Workflow        | Run ID        | Trigger             | Result  | Material evidence                                                                                                 |
+|-----------------|---------------|---------------------|---------|-------------------------------------------------------------------------------------------------------------------|
+| `validate`      | `31128951491` | `workflow_dispatch` | success | aggregate gate, 100 percent coverage, strict types, three golden platforms, three installed-wheel smoke platforms |
+| `security-scan` | `31128951886` | `workflow_dispatch` | success | Bandit, actionlint, zizmor, full-history gitleaks, OSV lock/repository scan, SARIF upload                         |
+
+The dependency-review job was skipped as designed because the security run was not
+a pull request event. The advisory Python 3.15 job succeeded. The validation run
+uploaded artifact `8975201094` as `validate-dist`; its retention deadline is
+2026-08-13.
+
+Artifact inventory from both the fresh local build and the exact downloaded CI
+artifact:
 
 | Artifact                                    | Size  | SHA-256                                                            |
 |---------------------------------------------|-------|--------------------------------------------------------------------|
@@ -123,6 +153,36 @@ The wheel was installed with cache disabled into a clean CPython 3.14.6
 environment. The environment contained only `agents-md-compiler==0.1.0`, both
 documented invocation forms worked, all 51 public API names imported, and
 `scripts/smoke.sh` reported `smoke: all assertions passed`.
+
+### GitHub Actions incident
+
+GitHub recorded direct `PushEvent` entries from actor `netopsengineer` for the
+initial commit and subsequent corrections on `refs/heads/main`, but created no check
+suite and no workflow run for any push. GitHub also recorded the `opened`
+`PullRequestEvent` for PR 1 at
+`989601cc49332045e093017c8f3c0828bf0abac4`, again with no check suite or workflow
+run.
+
+Repository checks found all workflows active, Actions enabled with all actions
+allowed, the default branch set to `main`, and both `validate.yml` and
+`security-scan.yml` configured for `push.branches: [main]`. The commit messages have
+no skip directive. Git authentication used username `netopsengineer` with a `gho_`
+OAuth credential, not the recursion-suppressed repository `GITHUB_TOKEN`. The
+repository Actions UI displayed no disablement, fork-approval, or policy warning.
+Both affected workflows were disabled and immediately re-enabled through the
+supported workflow API, then read back as active before the next PR synchronization
+event.
+
+The live [GitHub Actions incident](https://www.githubstatus.com/incidents/qcvjkzcs7j74)
+explains the missing runs. At 2026-08-06T22:18:09Z, GitHub reported Actions in a
+major outage and stated that webhook triggers remained throttled, with many push and
+pull request events not triggering new workflow runs.
+
+Status: `BLOCKED` by the external incident. Do not enable
+`SEMANTIC_RELEASE_ENABLED` or claim automatic delivery readiness until GitHub marks
+the incident resolved and a new repository event creates the expected workflow runs.
+Manual dispatch proves the workflow definitions and exact commit but does not prove
+automatic event delivery.
 
 ## Decisions taken on evidence
 
@@ -178,23 +238,28 @@ Verified through the active `netopsengineer` session on 2026-08-06:
   repository;
 - repository secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` exist;
 - protected environment `pypi` requires review by `netopsengineer`;
+- active repository ruleset `protect-main` has ID `20529695` and targets only
+  `refs/heads/main`;
 - repository variable `SEMANTIC_RELEASE_ENABLED` is absent;
 - secret scanning and push protection are enabled.
+
+The active ruleset blocks deletion and force pushes, requires linear history,
+squash-only pull requests, one current CODEOWNER approval, resolved review threads,
+and 12 strict GitHub Actions checks. The `netopsengineer` user bypass is limited to
+pull requests. The `compiler-release-bot` integration is the only always bypass, so
+the release workflow can create its reviewed semantic-release commit without giving
+the App administration or workflow permissions.
 
 Every repository, App, secret, and environment operation used the active
 `netopsengineer` account.
 
 ## Not verified, and why
 
-| Item                                                   | Blocking dependency                                        |
-|--------------------------------------------------------|------------------------------------------------------------|
-| GitHub Actions workflow results                        | Requires the initial commit and push                       |
-| Branch protection and required status checks           | Requires check contexts from the first workflow run        |
-| Pending PyPI Trusted Publisher identity                | Requires authenticated PyPI project access                 |
-| Dependabot auto-merge                                  | Deliberately disabled until all prerequisites are tested   |
-| SARIF upload to code scanning                          | Requires the first public-repository security workflow run |
-| First semantic-release run proving an idempotent no-op | Requires `v0.1.0` to exist                                 |
+| Item                                                   | Blocking dependency                                      |
+|--------------------------------------------------------|----------------------------------------------------------|
+| Dependabot auto-merge                                  | Deliberately disabled until all prerequisites are tested |
+| First semantic-release run proving an idempotent no-op | Requires `v0.1.0` to exist                               |
+| Automatic event-triggered workflow delivery            | Requires incident `qcvjkzcs7j74` to resolve and a retest |
 
-Because no workflow has run, every statement above is about workflow definitions,
-pins, permissions, and locally reproduced gates. It does not claim that a GitHub
-Actions run has succeeded.
+The exact-commit manual-dispatch workflows are green. Automatic push-triggered
+and pull-request-triggered delivery remains blocked as recorded above.
