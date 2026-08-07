@@ -390,6 +390,16 @@ an Action version, immutable SHA, effective permission, dependency resolution, o
 release artifact. Live release, tag, input-schema, and OSV evidence is recorded in
 `docs/dependency-verification.md`.
 
+PR 5 and protected-main commit
+`b2c182af3ed20540fac2054963e9e1f37e632b3c` proved the deprecation and cache-race
+fixes. Every pull request check had zero annotations. Post-merge validation run
+`31205466450`, security run `31205466852`, and release run `31205466214` passed.
+The release used the App Client ID successfully and reached the intended semantic
+no-op, with build and publication skipped. Its sole annotation was the repository's
+own `::notice` no-op message, not an Action warning. All repository-authored workflow
+notices now use ordinary log output so successful no-op, auto-fix, and bootstrap paths
+do not create check annotations.
+
 ## Deferred non-blocking controls
 
 | Item                      | Status and dependency                                             |
