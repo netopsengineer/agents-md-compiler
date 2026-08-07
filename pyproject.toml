@@ -56,10 +56,10 @@ Changelog = "https://github.com/netopsengineer/agents-md-compiler/blob/main/CHAN
 [tool.uv.build-backend]
 module-name = "agents_md_compiler"
 module-root = "src"
-# The execution plan and the session goal file stay in Git as durable evidence but
-# must never ship. uv_build's sdist already includes only the module root plus
-# pyproject/readme/license, so these patterns are belt-and-braces: Phase 9 asserts
-# the real archive listings rather than trusting this configuration.
+# The execution plan stays in Git as durable evidence. A session-local goal file
+# is ignored. Neither file may ship. uv_build's sdist already includes only the
+# module root plus pyproject/readme/license, so these patterns are belt-and-braces:
+# Phase 9 asserts the real archive listings rather than trusting this configuration.
 source-exclude = [
     "codex-global-agents-compiler-execution-plan.md",
     "goal.md",

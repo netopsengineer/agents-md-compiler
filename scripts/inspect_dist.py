@@ -34,7 +34,7 @@ from pathlib import Path
 WHEEL_SUFFIX = ".whl"
 SDIST_SUFFIX = ".tar.gz"
 
-# Material that exists in Git as evidence or tooling but must never reach a user.
+# Repository-only or session-local material that must never reach a user.
 # uv_build's sdist already limits itself to the module root plus project metadata,
 # and pyproject's source-exclude repeats these patterns; this list is the assertion
 # that proves it rather than trusting either.
