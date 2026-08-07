@@ -140,6 +140,11 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
           version: ${{ env.UV_VERSION }}
+          # validate.yml owns the shared Linux cache write. Release jobs restore
+          # that cache but never compete to reserve the same key.
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          save-cache: false
 
       - name: Synchronize the locked environment
         run: uv sync --locked
@@ -242,7 +247,7 @@ jobs:
         # scoped to this repository, and limited to the permissions listed.
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # frozen: v3.2.0
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
@@ -320,6 +325,11 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
           version: ${{ env.UV_VERSION }}
+          # The release gate and validate gate already populated this key. The
+          # artifact proof remains a cache consumer, never another writer.
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          save-cache: false
 
       - name: Synchronize the locked environment
         run: uv sync --locked

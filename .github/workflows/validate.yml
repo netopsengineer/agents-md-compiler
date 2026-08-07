@@ -60,8 +60,11 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
           version: ${{ env.UV_VERSION }}
+          # This is the single Linux cache writer for push, pull request, and
+          # manual validation. Concurrent jobs restore this key without saving it.
           enable-cache: true
           cache-dependency-glob: uv.lock
+          save-cache: true
 
       - name: Synchronize the locked environment
         run: uv sync --locked
@@ -113,6 +116,7 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
+          save-cache: false
 
       - name: Synchronize the locked environment
         run: uv sync --locked
@@ -187,6 +191,8 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
           version: ${{ env.UV_VERSION }}
+          # The smoke install explicitly disables uv's package cache below.
+          enable-cache: false
 
       - name: Download the built distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # frozen: v8.0.1
@@ -280,6 +286,9 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
+          # Linux restores the gate's cache. Each other matrix platform is its
+          # only writer, so it can populate its platform-specific key safely.
+          save-cache: ${{ runner.os != 'Linux' }}
 
       - name: Synchronize the locked environment
         run: uv sync --locked
@@ -312,6 +321,9 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
           version: ${{ env.UV_VERSION }}
+          # This isolated prerelease resolution must not read or write the stable
+          # locked-environment cache.
+          enable-cache: false
 
       - name: Resolve against the prerelease interpreter
         # An ephemeral resolution, never the committed lock: 3.15 wheels may not
