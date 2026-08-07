@@ -55,11 +55,15 @@ Allowed types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`
 `revert`, `style`, `test`. Use `!` or a `BREAKING CHANGE:` footer for a breaking
 change.
 
-Which type triggers what, once automated releases are enabled: `fix` produces a
+Which type triggers what, once automated releases are enabled: `fix` selects a
 patch release, `feat` a minor release, and a breaking marker a major release.
-`chore`, `ci`, `docs`, `style`, `test`, `build`, and `refactor` produce no
-release. Dependabot uses `chore` and `ci` prefixes so a dependency bump never cuts
-a release on its own.
+That automatic release runs only when the exact push also changes a published
+package input: `LICENSE`, `README.md`, `pyproject.toml`, or a file under
+`src/agents_md_compiler/`. Repository-only changes do not publish a package even
+when the commit is named `fix` or `feat`. `chore`, `ci`, `docs`, `style`, `test`,
+`build`, and `refactor` produce no automatic release. An operator can dispatch
+the explicit `release` path with a selected semantic level when a repository-only
+publication is intentional.
 
 ## Dependency updates
 
@@ -114,9 +118,14 @@ Do not open a public issue for a security problem. See
 Releases are automated and gated; contributors do not publish.
 
 - Do not bump `project.version` by hand. After `v0.1.0`, python-semantic-release
-  owns the version, the tag, the changelog, and the GitHub release.
+  owns the version and changelog commit. It must not create the tag or GitHub
+  release.
 - Do not add a PyPI token anywhere. Publishing uses OIDC Trusted Publishing from a
   minimal job that performs no checkout, no dependency install, and no rebuild.
+- Create the tag and GitHub release only after PyPI accepts the exact gated
+  artifact. If publication succeeded but finalization failed, dispatch `recover`
+  with the exact published version and prepared commit; recovery verifies public
+  PyPI state and never republishes.
 - Do not move or replace an existing tag.
 
 Full gate ordering is in the release-gates section of [`AGENTS.md`](AGENTS.md).

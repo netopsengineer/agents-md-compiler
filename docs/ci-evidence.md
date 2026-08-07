@@ -5,22 +5,22 @@ re-resolved live immediately before the workflows were written, and again after,
 check that nothing moved during authoring. Point-in-time tables elsewhere are evidence
 of a past verification, not permission to skip a current one.
 
-Action-pin verification date: 2026-08-06. Release and delivery evidence updated
+Action-pin verification date: 2026-08-07. Release and delivery evidence updated
 2026-08-07. Tooling: `gh api` against
 `repos/{owner}/{repo}/releases/latest`, `/tags`, and `/git/refs/tags/{tag}`, with
 annotated tags resolved through `/git/tags/{object}` to their commit.
 
 ## Action pins
 
-Ten unique action references across 51 use sites. Every pinned SHA equals the commit
+Ten unique action references across 58 use sites. Every pinned SHA equals the commit
 its `# frozen:` comment names, and every pin is the newest release and newest tag for
 its repository at the verification date.
 
 | Action                                            | Tag       | Commit SHA                                 | Use sites | Live verdict |
 |---------------------------------------------------|-----------|--------------------------------------------|-----------|--------------|
-| `step-security/harden-runner`                     | `v2.20.1` | `b09bb98e06d4d774595224525879c09bc6e98c40` | 18        | match        |
-| `actions/checkout`                                | `v7.0.1`  | `3d3c42e5aac5ba805825da76410c181273ba90b1` | 14        | match        |
-| `astral-sh/setup-uv`                              | `v9.0.0`  | `c771a70e6277c0a99b617c7a806ffedaca235ff9` | 10        | match        |
+| `step-security/harden-runner`                     | `v2.20.1` | `b09bb98e06d4d774595224525879c09bc6e98c40` | 21        | match        |
+| `actions/checkout`                                | `v7.0.1`  | `3d3c42e5aac5ba805825da76410c181273ba90b1` | 17        | match        |
+| `astral-sh/setup-uv`                              | `v9.0.0`  | `c771a70e6277c0a99b617c7a806ffedaca235ff9` | 11        | match        |
 | `actions/upload-artifact`                         | `v7.0.1`  | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | 2         | match        |
 | `actions/download-artifact`                       | `v8.0.1`  | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | 2         | match        |
 | `actions/create-github-app-token`                 | `v3.2.0`  | `bcd2ba49218906704ab6c1aa796996da409d3eb1` | 1         | match        |
@@ -59,25 +59,33 @@ would require separate repository provisioning that this repository does not per
 The checked-in configuration therefore cannot name a label that is absent from a new
 or existing repository.
 
+For `release.yml`, the same gate requires the exact-push package eligibility
+check, python-semantic-release inputs that commit and push but do not tag or create
+a VCS release, the complete gate on the exact prepared commit, the minimal OIDC
+publish boundary, publication-success ordering in the shared finalizer, and a
+verification-only recovery path. It also rejects a checkout, dependency install,
+or build command in the privileged publish job.
+
 Negative-path evidence, run against synthetic files outside the repository:
 a mutable `uses:` tag, a mutable hook `rev:`, and a SHA with no tag comment each
 produced exit code 1 with the offending path and line named. On 2026-08-07, synthetic
 bare, quoted, and flow-mapping Dependabot `labels` keys were rejected while a
-commented example was ignored. The repository configuration passed with seven files
-checked.
+commented example was ignored. Regression tests also remove each critical release
+control and inject a checkout into `publish`; every mutation is rejected. The
+repository configuration passed with seven files checked.
 
 ## Effective permissions
 
 Every workflow declares `permissions: contents: read` at the top level, so any job
 without its own block is read-only. Elevations, in full:
 
-| Workflow            | Job                  | Permissions                                                 | Why                                                  |
-|---------------------|----------------------|-------------------------------------------------------------|------------------------------------------------------|
-| `release.yml`       | `publish`            | `id-token: write` only                                      | Mints the OIDC token PyPI exchanges for upload       |
-| `release.yml`       | `finalize-bootstrap` | `contents: write`                                           | Creates the release tag and the GitHub release       |
-| `security-scan.yml` | `osv-scanner`        | `actions: read`, `contents: read`, `security-events: write` | Uploads SARIF to code scanning                       |
-| `security-scan.yml` | `dependency-review`  | `contents: read`, `pull-requests: write`                    | Posts the failure summary comment                    |
-| `auto-fix.yml`      | `fix`                | `contents: write`                                           | Pushes the mechanical fix commit to a feature branch |
+| Workflow            | Job                 | Permissions                                                 | Why                                                  |
+|---------------------|---------------------|-------------------------------------------------------------|------------------------------------------------------|
+| `release.yml`       | `publish`           | `id-token: write` only                                      | Mints the OIDC token PyPI exchanges for upload       |
+| `release.yml`       | `finalize`          | `contents: write`                                           | Creates the release tag and the GitHub release       |
+| `security-scan.yml` | `osv-scanner`       | `actions: read`, `contents: read`, `security-events: write` | Uploads SARIF to code scanning                       |
+| `security-scan.yml` | `dependency-review` | `contents: read`, `pull-requests: write`                    | Posts the failure summary comment                    |
+| `auto-fix.yml`      | `fix`               | `contents: write`                                           | Pushes the mechanical fix commit to a feature branch |
 
 Properties this table establishes:
 
@@ -100,9 +108,11 @@ the gate.
 `skip-existing` is deliberately `false`: a name that already exists on the index means
 the release already happened, and succeeding quietly would hide that.
 
-The bootstrap path creates the tag and the GitHub release only after PyPI accepts the
-upload, and refuses to move a tag that already exists. Re-running after a transient
-GitHub failure is therefore safe and does not republish.
+The bootstrap and semantic paths create the tag and GitHub release only after PyPI
+accepts the upload. The finalizer refuses to move an existing tag. A separate
+`recover` dispatch verifies the exact prepared main commit and the public PyPI wheel
+and sdist bytes, digests, and Trusted Publisher provenance, then creates only missing
+GitHub state. It never rebuilds or republishes.
 
 ## PyPI Trusted Publisher
 
@@ -399,6 +409,60 @@ no-op, with build and publication skipped. Its sole annotation was the repositor
 own `::notice` no-op message, not an Action warning. All repository-authored workflow
 notices now use ordinary log output so successful no-op, auto-fix, and bootstrap paths
 do not create check annotations.
+
+## v0.1.2 release-policy correction
+
+Protected-main commit `ab18ba209626ef178bde095f4165254366db41f7`
+removed the session-only `goal.md`. It changed no import-package source, packaged
+schema, license, readme, or project metadata. Its `fix` Conventional Commit type
+nevertheless caused python-semantic-release to prepare version commit
+`c6b12097f20fa5bbac251c5960e0d4dc3cee5eca` and publish v0.1.2 in release run
+[`31209049372`](https://github.com/netopsengineer/agents-md-compiler/actions/runs/31209049372).
+The package publication was unnecessary because the pushed change set contained no
+published package input.
+
+The same run exposed a separate ordering defect. The v0.1.2 annotated tag was
+created at `2026-08-07T18:56:37Z`, and the GitHub release was published at
+`2026-08-07T18:56:44Z`. PyPI accepted the wheel at
+`2026-08-07T19:00:39.247691Z` and the sdist at
+`2026-08-07T19:00:40.760264Z`. Publication ultimately succeeded, but the public
+tag and release existed about four minutes before the registry accepted the
+artifacts. That violated the ordered release contract even though the run ended
+green. The evidence is preserved in the
+[v0.1.2 release](https://github.com/netopsengineer/agents-md-compiler/releases/tag/v0.1.2)
+and [PyPI v0.1.2 JSON](https://pypi.org/pypi/agents-md-compiler/0.1.2/json).
+
+The corrected workflow applies these controls:
+
+- Automatic eligibility classifies every path in the exact GitHub push range.
+  Only `LICENSE`, `README.md`, `pyproject.toml`, and paths under
+  `src/agents_md_compiler/` can enable automatic package publication.
+- Repository-only pushes resolve to a successful no-op before the release gate.
+  An intentional repository-only publication requires an explicit `release`
+  dispatch and operator-selected semantic level.
+- The prepared `chore(release): VERSION` push resolves to a no-op. Its originating
+  run alone owns the exact-commit gate, build, publication, and finalization, so a
+  second workflow run cannot prepare another version while the first is incomplete.
+- python-semantic-release may create and push only the version and changelog
+  commit. Its pinned action receives `tag: false` and `vcs_release: false`.
+- The exact prepared version commit must pass the aggregate gate before the
+  artifact is built or published.
+- The shared `finalize` job depends on successful PyPI publication before creating
+  either the tag or GitHub release.
+- A `recover` dispatch handles the narrow case where PyPI accepted the artifacts
+  but GitHub finalization failed. It verifies the exact prepared main commit and
+  public wheel and sdist bytes, digests, and Trusted Publisher provenance, then
+  finalizes without rebuilding or republishing.
+- `scripts/check_pins.py` and mutation tests enforce these boundaries offline.
+
+No dependency version or immutable Action SHA changed. Pre-merge verification on
+2026-08-07 passed the complete 24-hook aggregate gate. The exact inline recovery
+verifier also downloaded both public v0.1.2 files, matched their PyPI SHA-256
+digests, and matched each attested subject and Trusted Publisher identity. A fresh
+0.1.2 sdist and wheel passed strict metadata and archive-content inspection; the
+sdist-derived and direct wheels matched across all 27 members; and the wheel passed
+the complete smoke suite in clean CPython 3.14.6. Post-merge operational evidence
+is not claimed by this pre-merge correction record.
 
 ## Deferred non-blocking controls
 

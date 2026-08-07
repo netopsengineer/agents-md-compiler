@@ -1,5 +1,5 @@
 ---
-# Release. Two mutually exclusive paths through one artifact and one publish job.
+# Release. Three mutually exclusive paths share one finalization contract.
 #
 # Bootstrap (workflow_dispatch, version 0.1.0 only). No prior release tag exists, so
 # python-semantic-release has nothing to compare against:
@@ -12,11 +12,22 @@
 #
 # Semantic (push to main, once the operator sets SEMANTIC_RELEASE_ENABLED):
 #
-#   conventional commits on protected main
-#     -> python-semantic-release creates the version commit, tag, and release
+#   the exact pushed change set contains a published package input
+#     -> python-semantic-release creates and pushes only the version commit
 #     -> unprivileged build job validates and uploads the exact dist artifact
-#     -> minimal publish job downloads that artifact
-#     -> PyPI OIDC Trusted Publishing plus PEP 740 attestations
+#     -> minimal publish job downloads and publishes that artifact
+#     -> finalize creates the tag and GitHub release after PyPI succeeds
+#
+# Explicit release (workflow_dispatch `release`):
+#
+#   operator selects the semantic level for an intentional package publication
+#     -> the semantic path above runs even when only repository files changed
+#
+# Recovery (workflow_dispatch `recover`):
+#
+#   operator supplies an already-published version and its prepared commit
+#     -> verify main ancestry, commit metadata, and public PyPI artifacts
+#     -> run only the idempotent tag and GitHub release finalization
 #
 # Invariants enforced below:
 #   - default permissions are read-only; every elevation is job-scoped;
@@ -24,6 +35,9 @@
 #   - `id-token: write` appears only in the publish job;
 #   - the publish job performs no checkout, no install, and no build;
 #   - the published bytes are the exact bytes the build job hashed;
+#   - automatic releases require the exact push to change a package input;
+#   - python-semantic-release creates no tag or GitHub release;
+#   - every tag and GitHub release is created only after PyPI succeeds;
 #   - a release in progress is never cancelled;
 #   - an existing tag is never moved or replaced.
 name: release
@@ -34,17 +48,35 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Release path. `bootstrap` publishes 0.1.0; `recover` re-runs the current path."
+        description: "Operation: bootstrap 0.1.0, force a release, or recover finalization."
         required: true
         type: choice
         options:
           - bootstrap
+          - release
           - recover
       bootstrap_version:
         description: "Must be exactly 0.1.0. Any other value is refused."
         required: false
         type: string
         default: "0.1.0"
+      release_level:
+        description: "Required for `release`; explicitly forces this semantic level."
+        required: false
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      recovery_version:
+        description: "Required for `recover`; exact version already present on PyPI."
+        required: false
+        type: string
+      recovery_commit:
+        description: "Required for `recover`; 40-hex prepared release commit on main."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -67,14 +99,24 @@ jobs:
     name: resolve the release path
     runs-on: ubuntu-latest
     outputs:
-      path: ${{ steps.decide.outputs.path }}
+      path: ${{ steps.resolve.outputs.path }}
+      force: ${{ steps.resolve.outputs.force }}
+      recovery_version: ${{ steps.resolve.outputs.recovery_version }}
+      recovery_commit: ${{ steps.resolve.outputs.recovery_commit }}
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
         with:
           egress-policy: audit
 
-      - name: Decide
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          # Automatic eligibility compares the exact before/after commits from
+          # the push event. A shallow clone could omit the comparison base.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate the requested operation
         id: decide
         env:
           # Inputs are read through the environment, never interpolated into the
@@ -82,7 +124,11 @@ jobs:
           EVENT: ${{ github.event_name }}
           MODE: ${{ inputs.mode }}
           REQUESTED_VERSION: ${{ inputs.bootstrap_version }}
+          RELEASE_LEVEL: ${{ inputs.release_level }}
+          RECOVERY_VERSION: ${{ inputs.recovery_version }}
+          RECOVERY_COMMIT: ${{ inputs.recovery_commit }}
           REF: ${{ github.ref }}
+          HEAD_COMMIT: ${{ github.sha }}
           SEMANTIC_ENABLED: ${{ vars.SEMANTIC_RELEASE_ENABLED }}
         run: |
           set -euo pipefail
@@ -92,7 +138,10 @@ jobs:
             exit 1
           fi
 
-          path=none
+          requested_path=none
+          force=
+          recovery_version=
+          recovery_commit=
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$MODE" = "bootstrap" ]; then
             # The only accepted bootstrap version is the literal below. An arbitrary
             # version string, ref, or shell fragment is refused here rather than
@@ -107,24 +156,102 @@ jobs:
                    "Refusing to bootstrap a second time." >&2
               exit 1
             fi
-            path=bootstrap
-          elif [ "$SEMANTIC_ENABLED" = "true" ]; then
-            path=semantic
+            requested_path=bootstrap
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$MODE" = "release" ]; then
+            if [ "$SEMANTIC_ENABLED" != "true" ]; then
+              echo "SEMANTIC_RELEASE_ENABLED must be true for an explicit release." >&2
+              exit 1
+            fi
+            case "$RELEASE_LEVEL" in
+              patch|minor|major) ;;
+              *) echo "release_level must be patch, minor, or major" >&2; exit 1 ;;
+            esac
+            requested_path=semantic
+            force=$RELEASE_LEVEL
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$MODE" = "recover" ]; then
+            if ! [[ "$RECOVERY_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "recovery_version must have stable form MAJOR.MINOR.PATCH" >&2
+              exit 1
+            fi
+            if ! [[ "$RECOVERY_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "recovery_commit must be a lowercase 40-hex commit SHA" >&2
+              exit 1
+            fi
+            requested_path=recover
+            recovery_version=$RECOVERY_VERSION
+            recovery_commit=$RECOVERY_COMMIT
+          elif [ "$EVENT" = "push" ]; then
+            subject=$(git show -s --format=%s "$HEAD_COMMIT")
+            case "$subject" in
+              "chore(release): "*)
+                echo "Prepared release commit push. The originating run owns it. No-op."
+                ;;
+              *)
+                if [ "$SEMANTIC_ENABLED" = "true" ]; then
+                  requested_path=semantic
+                else
+                  echo "SEMANTIC_RELEASE_ENABLED is not true. Nothing to release."
+                fi
+                ;;
+            esac
           else
-            echo "SEMANTIC_RELEASE_ENABLED is not true and this is not a" \
-                 "bootstrap dispatch. Nothing to release."
+            echo "unsupported release operation: event=$EVENT mode=$MODE" >&2
+            exit 1
           fi
 
-          echo "path=$path" >>"$GITHUB_OUTPUT"
+          {
+            echo "requested_path=$requested_path"
+            echo "force=$force"
+            echo "recovery_version=$recovery_version"
+            echo "recovery_commit=$recovery_commit"
+          } >>"$GITHUB_OUTPUT"
+          echo "requested release path: $requested_path"
+
+      - name: Evaluate automatic package-release eligibility
+        id: package-policy
+        if: steps.decide.outputs.requested_path == 'semantic' && github.event_name == 'push'
+        env:
+          AFTER: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          git diff --name-only --no-renames -z "${BEFORE}..${AFTER}" |
+            python3 scripts/release_policy.py \
+              --before "$BEFORE" \
+              --after "$AFTER" \
+              --github-output "$GITHUB_OUTPUT"
+
+      - name: Resolve the executable path
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          REQUESTED_PATH: ${{ steps.decide.outputs.requested_path }}
+          PACKAGE_CHANGES: ${{ steps.package-policy.outputs.package_changes }}
+          FORCE: ${{ steps.decide.outputs.force }}
+          RECOVERY_VERSION: ${{ steps.decide.outputs.recovery_version }}
+          RECOVERY_COMMIT: ${{ steps.decide.outputs.recovery_commit }}
+        run: |
+          set -euo pipefail
+          path=$REQUESTED_PATH
+          if [ "$EVENT" = "push" ] && [ "$path" = "semantic" ] && \
+             [ "$PACKAGE_CHANGES" != "true" ]; then
+            path=none
+            echo "The pushed change set contains no published package input. No-op."
+          fi
+          {
+            echo "path=$path"
+            echo "force=$FORCE"
+            echo "recovery_version=$RECOVERY_VERSION"
+            echo "recovery_commit=$RECOVERY_COMMIT"
+          } >>"$GITHUB_OUTPUT"
           echo "resolved release path: $path"
 
-  # The same acceptance gate validate.yml runs, re-run here against the exact commit
-  # being released. A release must never publish bytes that were not gated
-  # (PY-PKG-008), and a green run on an earlier commit is not evidence about this one.
+  # Gate the requested source commit before any release preparation. The semantic
+  # path repeats this gate below against the new version commit before building it.
   gate:
     name: gate the release commit
     needs: resolve
-    if: needs.resolve.outputs.path != 'none'
+    if: needs.resolve.outputs.path == 'bootstrap' || needs.resolve.outputs.path == 'semantic'
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
@@ -222,18 +349,18 @@ jobs:
           fi
           echo "tag ${tag} is free"
 
-  # Semantic path only. The single job that writes to protected main, and therefore
-  # the only job that gets the GitHub App token.
+  # Semantic path only. This job prepares and pushes the version commit to protected
+  # main, but creates no tag and no GitHub release. Those public release claims are
+  # deferred until the publish job proves PyPI accepted the exact artifact.
   semantic-release:
-    name: semantic release
+    name: prepare the semantic release
     needs: [resolve, gate]
     if: needs.resolve.outputs.path == 'semantic'
     runs-on: ubuntu-latest
     outputs:
       released: ${{ steps.psr.outputs.released }}
       version: ${{ steps.psr.outputs.version }}
-      tag: ${{ steps.psr.outputs.tag }}
-      commit: ${{ steps.psr.outputs.commit_sha }}
+      commit: ${{ steps.prepared.outputs.commit }}
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
@@ -260,7 +387,7 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
           # This checkout must retain credentials, because this is the job that
-          # pushes the version commit and tag back to protected main.
+          # pushes the version commit back to protected main.
           persist-credentials: true
 
       - name: Run python-semantic-release
@@ -268,30 +395,113 @@ jobs:
         uses: python-semantic-release/python-semantic-release@39dd2052f2ce8282a5d932c31d58a2ca06d2550e # frozen: v10.6.1
         with:
           github_token: ${{ steps.app-token.outputs.token }}
-          # No release-worthy commit means no commit, no tag, no release, and
-          # `released=false`. Downstream jobs skip, which is the required idempotent
-          # no-op rather than an empty version bump.
+          # The version and changelog commit is pushed to protected main so the
+          # artifact can be built from an immutable commit. The tag and GitHub
+          # release are prohibited here and created by `finalize` only after PyPI.
+          commit: true
+          tag: false
+          push: true
+          changelog: true
+          vcs_release: false
+          build: true
+          force: ${{ needs.resolve.outputs.force }}
+          # No release-worthy commit means no commit and `released=false`.
+          # Downstream jobs skip instead of manufacturing an empty release.
           strict: false
           git_committer_name: "github-actions[bot]"
           git_committer_email: "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Report the outcome
+      - name: Validate the prepared release
+        id: prepared
         env:
           RELEASED: ${{ steps.psr.outputs.released }}
           VERSION: ${{ steps.psr.outputs.version }}
-          TAG: ${{ steps.psr.outputs.tag }}
         run: |
           set -euo pipefail
-          echo "released=$RELEASED version=$VERSION tag=$TAG"
           if [ "$RELEASED" != "true" ]; then
+            echo "commit=" >>"$GITHUB_OUTPUT"
             echo "No release-worthy commit since the last tag. No-op."
+            exit 0
           fi
+
+          commit=$(git rev-parse HEAD)
+          declared=$(python3 -c "
+          import pathlib, tomllib
+          data = tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(data['project']['version'])
+          ")
+          locked=$(python3 -c "
+          import pathlib, tomllib
+          data = tomllib.loads(pathlib.Path('uv.lock').read_text(encoding='utf-8'))
+          for package in data['package']:
+              if package['name'] == 'agents-md-compiler':
+                  print(package['version'])
+                  break
+          else:
+              raise SystemExit('agents-md-compiler is absent from uv.lock')
+          ")
+          if [ "$declared" != "$VERSION" ] || [ "$locked" != "$VERSION" ]; then
+            echo "prepared version mismatch: action=$VERSION" \
+                 "pyproject=$declared lock=$locked" >&2
+            exit 1
+          fi
+
+          tag="v${VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "tag ${tag} exists before PyPI publication; refusing to continue" >&2
+            exit 1
+          fi
+          echo "commit=$commit" >>"$GITHUB_OUTPUT"
+          echo "prepared version=$VERSION commit=$commit; tag deferred until PyPI"
+
+  # Semantic path only. The version commit did not exist when `gate` ran, so repeat
+  # the complete acceptance gate against the exact immutable commit that will be
+  # built and published. A green parent commit is not evidence about generated
+  # version and lock changes.
+  gate-prepared:
+    name: gate the prepared release commit
+    needs: [resolve, semantic-release]
+    if: needs.resolve.outputs.path == 'semantic' && needs.semantic-release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          ref: ${{ needs.semantic-release.outputs.commit }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          save-cache: false
+
+      - name: Synchronize the locked environment
+        run: uv sync --locked
+
+      - name: Aggregate gate
+        run: uv run prek run --all-files --show-diff-on-failure --color always
+
+      - name: Tests with coverage
+        run: uv run pytest
+
+      - name: Strict type check
+        run: uv run pyright
+
+      - name: Refuse an unclean tree
+        run: git diff --exit-code
 
   # Unprivileged. Builds the artifact, proves it, and hands exactly one immutable
   # bundle forward. No token, no registry identity, no write permission.
   build:
     name: build and prove the artifact
-    needs: [resolve, gate, verify-bootstrap, semantic-release]
+    needs: [resolve, gate, verify-bootstrap, semantic-release, gate-prepared]
     # `always()` because each path leaves one of the two upstream jobs skipped, and a
     # skipped dependency would otherwise skip this job too. The conditions still
     # require the relevant path's own gate to have succeeded.
@@ -300,7 +510,7 @@ jobs:
       needs.gate.result == 'success' &&
       (
         (needs.resolve.outputs.path == 'bootstrap' && needs.verify-bootstrap.result == 'success') ||
-        (needs.resolve.outputs.path == 'semantic' && needs.semantic-release.result == 'success' && needs.semantic-release.outputs.released == 'true')
+        (needs.resolve.outputs.path == 'semantic' && needs.semantic-release.result == 'success' && needs.semantic-release.outputs.released == 'true' && needs.gate-prepared.result == 'success')
       )
     runs-on: ubuntu-latest
     outputs:
@@ -316,9 +526,8 @@ jobs:
         with:
           # For the semantic path this is the version commit python-semantic-release
           # just created, not the commit that triggered the run. For bootstrap the
-          # two are the same commit. Either way the ref is a value this workflow
-          # produced, never operator input.
-          ref: ${{ needs.resolve.outputs.path == 'semantic' && needs.semantic-release.outputs.tag || github.sha }}
+          # two are the same commit. No tag exists yet on either path.
+          ref: ${{ needs.resolve.outputs.path == 'semantic' && needs.semantic-release.outputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Install uv
@@ -489,21 +698,143 @@ jobs:
           # was already published, and quietly succeeding would hide that.
           skip-existing: false
 
-  # Bootstrap only, and only after PyPI accepted the upload. Creating the tag last
-  # means a failed publication leaves no tag claiming a release that does not exist.
-  # Every step checks before it writes, so a transient GitHub failure can be retried
-  # through `workflow_dispatch` without republishing.
-  finalize-bootstrap:
-    name: finalize the bootstrap release
-    needs: [resolve, build, publish]
-    # Keep the explicit prerequisite checks authoritative even though the semantic
-    # path is deliberately skipped during bootstrap.
+  # Recovery never builds or publishes. It proves the supplied commit is a prepared
+  # release commit on main and that PyPI already contains the matching immutable
+  # version. Only then may the shared idempotent finalizer create missing GitHub state.
+  verify-recovery:
+    name: verify published release recovery
+    needs: resolve
+    if: needs.resolve.outputs.path == 'recover'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify main ancestry, metadata, and PyPI publication
+        env:
+          COMMIT: ${{ needs.resolve.outputs.recovery_commit }}
+          VERSION: ${{ needs.resolve.outputs.recovery_version }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$COMMIT" HEAD; then
+            echo "$COMMIT is not an ancestor of the current main branch" >&2
+            exit 1
+          fi
+          subject=$(git show -s --format=%s "$COMMIT")
+          if [ "$subject" != "chore(release): $VERSION" ]; then
+            echo "$COMMIT is not the prepared release commit for $VERSION" >&2
+            exit 1
+          fi
+          declared=$(git show "$COMMIT:pyproject.toml" | python3 -c "
+          import sys, tomllib
+          print(tomllib.loads(sys.stdin.read())['project']['version'])
+          ")
+          if [ "$declared" != "$VERSION" ]; then
+            echo "$COMMIT declares version $declared, not $VERSION" >&2
+            exit 1
+          fi
+          locked=$(git show "$COMMIT:uv.lock" | python3 -c "
+          import sys, tomllib
+          data = tomllib.loads(sys.stdin.read())
+          for package in data['package']:
+              if package['name'] == 'agents-md-compiler':
+                  print(package['version'])
+                  break
+          else:
+              raise SystemExit('agents-md-compiler is absent from uv.lock')
+          ")
+          if [ "$locked" != "$VERSION" ]; then
+            echo "$COMMIT locks version $locked, not $VERSION" >&2
+            exit 1
+          fi
+
+          python3 - "$VERSION" <<'PY'
+          import base64
+          import hashlib
+          import json
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          version = sys.argv[1]
+          url = f"https://pypi.org/pypi/agents-md-compiler/{version}/json"
+          with urllib.request.urlopen(url, timeout=30) as response:
+              document = json.load(response)
+          if document["info"]["version"] != version:
+              raise SystemExit("PyPI returned a different version")
+          files = document["urls"]
+          package_types = sorted(item["packagetype"] for item in files)
+          if package_types != ["bdist_wheel", "sdist"]:
+              raise SystemExit(f"unexpected PyPI artifact set: {package_types}")
+          for item in sorted(files, key=lambda value: value["filename"]):
+              filename = item["filename"]
+              digest = item["digests"]["sha256"]
+              if len(digest) != hashlib.sha256().digest_size * 2:
+                  raise SystemExit(f"invalid SHA-256 for {filename}")
+              with urllib.request.urlopen(item["url"], timeout=30) as response:
+                  actual = hashlib.sha256(response.read()).hexdigest()
+              if actual != digest:
+                  raise SystemExit(f"downloaded digest mismatch for {filename}")
+
+              encoded_filename = urllib.parse.quote(filename, safe="")
+              provenance_url = (
+                  "https://pypi.org/integrity/agents-md-compiler/"
+                  f"{version}/{encoded_filename}/provenance"
+              )
+              with urllib.request.urlopen(provenance_url, timeout=30) as response:
+                  provenance = json.load(response)
+              bundles = provenance["attestation_bundles"]
+              if len(bundles) != 1:
+                  raise SystemExit(f"unexpected provenance bundle count for {filename}")
+              publisher = bundles[0]["publisher"]
+              expected_publisher = {
+                  "environment": "pypi",
+                  "kind": "GitHub",
+                  "repository": "netopsengineer/agents-md-compiler",
+                  "workflow": "release.yml",
+              }
+              if publisher != expected_publisher:
+                  raise SystemExit(f"unexpected publisher for {filename}: {publisher}")
+              attestations = bundles[0]["attestations"]
+              if len(attestations) != 1:
+                  raise SystemExit(f"unexpected attestation count for {filename}")
+              statement_bytes = base64.b64decode(
+                  attestations[0]["envelope"]["statement"], validate=True
+              )
+              statement = json.loads(statement_bytes)
+              expected_subject = [{"name": filename, "digest": {"sha256": digest}}]
+              if statement["subject"] != expected_subject:
+                  raise SystemExit(f"attested subject mismatch for {filename}")
+              print(f"published and attested {filename} {digest}")
+          PY
+
+  # Shared by bootstrap, semantic release, and finalize-only recovery. Normal paths
+  # require successful publication in this run. Recovery requires independent proof
+  # that publication already succeeded, and never invokes the publish job again.
+  finalize:
+    name: finalize the published release
+    needs: [resolve, build, publish, verify-recovery]
     if: |
       always() &&
       needs.resolve.result == 'success' &&
-      needs.build.result == 'success' &&
-      needs.publish.result == 'success' &&
-      needs.resolve.outputs.path == 'bootstrap'
+      (
+        (
+          (needs.resolve.outputs.path == 'bootstrap' || needs.resolve.outputs.path == 'semantic') &&
+          needs.build.result == 'success' &&
+          needs.publish.result == 'success'
+        ) ||
+        (
+          needs.resolve.outputs.path == 'recover' &&
+          needs.verify-recovery.result == 'success'
+        )
+      )
     runs-on: ubuntu-latest
     permissions:
       # Creating a tag and a release is a contents write. It is not a protected-branch
@@ -515,18 +846,50 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Select the published identity
+        id: identity
+        env:
+          PATH_KIND: ${{ needs.resolve.outputs.path }}
+          BUILT_COMMIT: ${{ needs.build.outputs.commit }}
+          BUILT_VERSION: ${{ needs.build.outputs.version }}
+          RECOVERY_COMMIT: ${{ needs.resolve.outputs.recovery_commit }}
+          RECOVERY_VERSION: ${{ needs.resolve.outputs.recovery_version }}
+        run: |
+          set -euo pipefail
+          if [ "$PATH_KIND" = "recover" ]; then
+            commit=$RECOVERY_COMMIT
+            version=$RECOVERY_VERSION
+          else
+            commit=$BUILT_COMMIT
+            version=$BUILT_VERSION
+          fi
+          {
+            echo "commit=$commit"
+            echo "version=$version"
+          } >>"$GITHUB_OUTPUT"
+          echo "finalizing version=$version commit=$commit after PyPI publication"
+
       - name: Create the tag if it does not exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COMMIT: ${{ needs.build.outputs.commit }}
-          VERSION: ${{ needs.build.outputs.version }}
+          COMMIT: ${{ steps.identity.outputs.commit }}
+          VERSION: ${{ steps.identity.outputs.version }}
         run: |
           set -euo pipefail
           tag="v${VERSION}"
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
-            existing=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" \
-              --jq '.object.sha')
-            echo "tag ${tag} already exists at ${existing}"
+          if tag_ref=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" \
+            --jq '.object.type + " " + .object.sha' 2>/dev/null); then
+            read -r object_type object_sha <<<"$tag_ref"
+            case "$object_type" in
+              commit) existing=$object_sha ;;
+              tag)
+                existing=$(gh api \
+                  "repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}" \
+                  --jq '.object.sha')
+                ;;
+              *) echo "tag ${tag} has unsupported target type $object_type" >&2; exit 1 ;;
+            esac
+            echo "tag ${tag} already resolves to ${existing}"
             if [ "$existing" != "$COMMIT" ]; then
               echo "it points at a different commit than the published one" \
                    "(${COMMIT}); refusing to move it" >&2
@@ -542,7 +905,7 @@ jobs:
       - name: Create the GitHub release if it does not exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ steps.identity.outputs.version }}
         run: |
           set -euo pipefail
           tag="v${VERSION}"
@@ -553,16 +916,7 @@ jobs:
           gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
             -f "tag_name=${tag}" \
             -f "name=${tag}" \
-            -f "body=Bootstrap release published to PyPI through Trusted Publishing. See CHANGELOG.md." \
+            -f "body=agents-md-compiler ${VERSION} published to PyPI through Trusted Publishing. See CHANGELOG.md." \
             -F "draft=false" \
             -F "prerelease=false"
           echo "created release ${tag}"
-
-      - name: State the remaining manual step
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          echo "Bootstrap complete. Verify v${VERSION} and the GitHub" \
-               "release, then set the repository variable" \
-               "SEMANTIC_RELEASE_ENABLED=true to hand later releases to" \
-               "python-semantic-release."
