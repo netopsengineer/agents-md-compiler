@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           if git diff --quiet; then
-            echo "::notice::The hooks changed nothing. Nothing to push."
+            echo "The hooks changed nothing. Nothing to push."
             exit 0
           fi
           echo "changed files:"
@@ -119,5 +119,5 @@ jobs:
 
       - name: Restate that the gate still owns acceptance
         run: |
-          echo "::notice::Mechanical fixes applied. validate.yml decides whether the" \
+          echo "Mechanical fixes applied. validate.yml decides whether the" \
                "branch is acceptable; a fix commit is not an approval."

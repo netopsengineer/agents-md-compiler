@@ -111,7 +111,7 @@ jobs:
           elif [ "$SEMANTIC_ENABLED" = "true" ]; then
             path=semantic
           else
-            echo "::notice::SEMANTIC_RELEASE_ENABLED is not true and this is not a" \
+            echo "SEMANTIC_RELEASE_ENABLED is not true and this is not a" \
                  "bootstrap dispatch. Nothing to release."
           fi
 
@@ -284,7 +284,7 @@ jobs:
           set -euo pipefail
           echo "released=$RELEASED version=$VERSION tag=$TAG"
           if [ "$RELEASED" != "true" ]; then
-            echo "::notice::No release-worthy commit since the last tag. No-op."
+            echo "No release-worthy commit since the last tag. No-op."
           fi
 
   # Unprivileged. Builds the artifact, proves it, and hands exactly one immutable
@@ -562,7 +562,7 @@ jobs:
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          echo "::notice::Bootstrap complete. Verify v${VERSION} and the GitHub" \
+          echo "Bootstrap complete. Verify v${VERSION} and the GitHub" \
                "release, then set the repository variable" \
                "SEMANTIC_RELEASE_ENABLED=true to hand later releases to" \
                "python-semantic-release."
