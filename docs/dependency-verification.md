@@ -162,10 +162,10 @@ The baseline project's `>=0.11.28,<0.12` bound is deliberately not copied; the u
 0.12.0 notes instruct projects with an upper bound to admit 0.12. The baseline
 project is not modified by this work.
 
-The documented `source-exclude` and `wheel-exclude` keys are the mechanism for
-keeping `codex-global-agents-compiler-execution-plan.md` and `goal.md` in Git but
-out of both distributions. Phase 2 configures them and Phase 9 verifies the
-actual archive contents rather than trusting the configuration.
+The documented `source-exclude` key keeps the tracked
+`codex-global-agents-compiler-execution-plan.md` and any ignored, session-local
+`goal.md` out of both distributions. Phase 2 configures it and Phase 9 verifies
+the actual archive contents rather than trusting the configuration.
 
 uv 0.12.0 breaking changes were reviewed against this project's command set
 (`uv lock`, `uv sync --locked`, `uv run`, `uv build`, `uv audit`, `uvx`). None

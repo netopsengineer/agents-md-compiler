@@ -14,17 +14,12 @@ default_language_version:
 
 fail_fast: false
 
-# goal.md is operator-supplied session scaffolding, not a project artifact. Its
-# status-block template uses <placeholder> tokens that Markdown lint reads as inline
-# HTML, and rewriting an operator's directive to satisfy a linter would change the
-# directive. It is excluded rather than edited.
 exclude: |
   (?x)^(
     .venv/.*|
     .vscode/.*|
     .gitignore|
     .dockerignore|
-    goal.md|
   )$
 
 # Make `prek autoupdate` behave like Dependabot's pre-commit ecosystem: rewrite

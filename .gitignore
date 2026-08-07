@@ -1,6 +1,9 @@
 # Created by https://www.toptal.com/developers/gitignore/api/osx,linux,windows,visualstudiocode,python,node,rust,rust-analyzer
 # Edit at https://www.toptal.com/developers/gitignore?templates=osx,linux,windows,visualstudiocode,python,node,rust,rust-analyzer
 
+# Session-local agent state
+/goal.md
+
 ### Linux ###
 *~
 
