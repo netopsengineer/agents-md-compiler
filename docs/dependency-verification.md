@@ -5,7 +5,8 @@ resolved live on the recorded date. Nothing here comes from model memory or from
 the execution plan's point-in-time tables, which are treated as evidence to
 re-check rather than as permission to skip verification.
 
-- Verification date: 2026-08-06
+- Project dependency verification date: 2026-08-06
+- One-off release verifier and public identity update: 2026-08-07
 - Tools used: `curl` against PyPI and npm JSON endpoints, `gh api` against the
   GitHub REST API, `osv_scan.py` against `api.osv.dev`, `WebFetch` against
   official documentation and release notes
@@ -125,6 +126,27 @@ Astral CDN with checksum verification, `prek install --force` bypassing external
 hook paths), performance work, one bug fix (full object IDs in diff snapshots),
 and documentation. No breaking change and no migration step applies to this
 project's use.
+
+### One-off PEP 740 verifier
+
+`pypi-attestations` is not a project dependency and was not added to
+`pyproject.toml` or `uv.lock`. Version 0.0.30 was selected only for independent
+post-publication verification of the two release files.
+
+| Check                        | Source                                                                     | Finding                                                  |
+|------------------------------|----------------------------------------------------------------------------|----------------------------------------------------------|
+| Latest PyPI version          | <https://pypi.org/pypi/pypi-attestations/json>                             | `0.0.30`                                                 |
+| Latest GitHub release        | <https://api.github.com/repos/pypi/pypi-attestations/releases/latest>      | `v0.0.30`, published 2026-07-28                          |
+| Latest GitHub tag            | <https://api.github.com/repos/pypi/pypi-attestations/tags?per_page=5>      | `v0.0.30`                                                |
+| Tag ref                      | <https://api.github.com/repos/pypi/pypi-attestations/git/ref/tags/v0.0.30> | direct commit `845bfac2f2912912fb2d1ab96775ac75708279c4` |
+| Exact-version advisory query | <https://api.osv.dev/v1/query>                                             | PyPI `pypi-attestations` 0.0.30, zero advisories         |
+
+Both GitHub `/releases/latest` and `/tags` agree with PyPI. The tag is lightweight
+and points directly to the recorded commit, so no annotated tag object required
+dereferencing. The exact invocation was isolated through
+`uvx --from pypi-attestations==0.0.30`; it returned `OK` for both public
+`agents-md-compiler` 0.1.0 distribution URLs when constrained to repository identity
+`https://github.com/netopsengineer/agents-md-compiler`.
 
 ## Build backend decision
 
@@ -296,29 +318,31 @@ is written.
 
 | Check                                         | Method                                                          | Result                                      |
 |-----------------------------------------------|-----------------------------------------------------------------|---------------------------------------------|
-| `agents-md-compiler` on PyPI                  | `GET https://pypi.org/pypi/.../json`                            | HTTP 404, unclaimed                         |
-| `agents_md_compiler` normalized form on PyPI  | `GET https://pypi.org/pypi/.../json`                            | HTTP 404, unclaimed                         |
+| `agents-md-compiler` on PyPI                  | `GET https://pypi.org/pypi/.../json`                            | HTTP 200, version 0.1.0 published           |
+| `agents_md_compiler` normalized form on PyPI  | `GET https://pypi.org/pypi/.../json`                            | same active project                         |
 | `codex-global-agents-compiler` on PyPI        | `GET https://pypi.org/pypi/.../json`                            | HTTP 404, unclaimed                         |
 | `netopsengineer/agents-md-compiler` on GitHub | `gh api repos/netopsengineer/agents-md-compiler`                | HTTP 200, public repository exists          |
 | Owner account exists                          | `gh api repos/netopsengineer/agent-skill-description-optimizer` | public repository owned by `netopsengineer` |
 
-PyPI normalizes `-` and `_` to the same project name, so all three 404 responses
-describe one unclaimed normalized name. A 404 is not a reservation. The name is
-rechecked immediately before the pending Trusted Publisher is configured in
-Phase 14 and again in Phase 15.
+PyPI normalizes `-` and `_` to the same project name. Both spellings were HTTP 404
+before the pending Trusted Publisher was configured and were rechecked before
+bootstrap. Protected OIDC publication created the project on 2026-08-07; both now
+resolve to the active 0.1.0 project. `codex-global-agents-compiler` is a distinct
+normalized name and remains unclaimed.
 
 The GitHub query ran under the active `netopsengineer` account. The repository
 was created and configured under that owner on 2026-08-06.
 
 ## Acceptance criteria
 
-| Criterion                                                       | Result                                                 |
-|-----------------------------------------------------------------|--------------------------------------------------------|
-| No external version or Action SHA came from model memory        | pass                                                   |
-| Both release and tag sources checked for each dependency        | pass                                                   |
-| Every exact selected dependency has a recorded advisory result  | pass                                                   |
-| Every Action and hook uses an immutable SHA with a verified tag | pass                                                   |
-| No unresolved version placeholder remains                       | pass                                                   |
-| Package-name availability rechecked before Phase 15             | pass on 2026-08-06; recheck immediately before publish |
+| Criterion                                                         | Result                                          |
+|-------------------------------------------------------------------|-------------------------------------------------|
+| No external version or Action SHA came from model memory          | pass                                            |
+| Both release and tag sources checked for each dependency          | pass                                            |
+| Every exact selected dependency has a recorded advisory result    | pass                                            |
+| Every Action and hook uses an immutable SHA with a verified tag   | pass                                            |
+| No unresolved version placeholder remains                         | pass                                            |
+| Package-name availability rechecked before Phase 15               | pass; project created by protected OIDC publish |
+| One-off PEP 740 verifier version and advisory status live-checked | pass on 2026-08-07                              |
 
 State reached: `DEPENDENCIES_VERIFIED`.

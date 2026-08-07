@@ -5,7 +5,8 @@ re-resolved live immediately before the workflows were written, and again after,
 check that nothing moved during authoring. Point-in-time tables elsewhere are evidence
 of a past verification, not permission to skip a current one.
 
-Verification date: 2026-08-06. Tooling: `gh api` against
+Action-pin verification date: 2026-08-06. Release and delivery evidence updated
+2026-08-07. Tooling: `gh api` against
 `repos/{owner}/{repo}/releases/latest`, `/tags`, and `/git/refs/tags/{tag}`, with
 annotated tags resolved through `/git/tags/{object}` to their commit.
 
@@ -95,20 +96,23 @@ GitHub failure is therefore safe and does not republish.
 
 ## PyPI Trusted Publisher
 
-Verified through the authenticated `netopsengineer` PyPI session on 2026-08-06. The
-pending publisher has this exact identity:
+The pending publisher was verified through the authenticated `netopsengineer` PyPI
+session before publication. The first accepted upload on 2026-08-07 converted it to
+an active project publisher with this exact identity:
 
 | Field            | Value                                 |
 |------------------|---------------------------------------|
-| Project          | `agents-md-compiler`                  |
+| Project          | `agents-md-compiler` (active)         |
 | Publisher        | GitHub                                |
 | Owner/repository | `netopsengineer/agents-md-compiler`   |
 | Workflow         | `release.yml`                         |
 | Environment      | `pypi`                                |
 | Authentication   | OIDC Trusted Publishing; no API token |
 
-The pending publisher will become the project's ordinary trusted publisher when the
-bootstrap workflow creates the project with its first accepted upload.
+The account publishing page now lists `agents-md-compiler` under active publishers
+and reports that no pending publishers are configured. Public PyPI provenance for
+both release files independently records the same repository, workflow, and
+environment.
 
 ## Validation results
 
@@ -154,6 +158,93 @@ environment. The environment contained only `agents-md-compiler==0.1.0`, both
 documented invocation forms worked, all 51 public API names imported, and
 `scripts/smoke.sh` reported `smoke: all assertions passed`.
 
+### Automatic delivery and release acceptance
+
+PR 1 proved automatic pull request delivery after GitHub recovered. Its exact head
+was `512a3c77ccf737ab6de8fd08deec4c69832f8527`; validation run `31129983690`
+and security run `31129984567` succeeded, including dependency review and all 12
+strict required checks. The pull request was squash-merged as protected-main commit
+`b6a3832f9abf10e5c713ec879cdd39ff4759ad58`.
+
+Automatic push delivery on that commit also succeeded:
+
+| Workflow        | Run ID        | Result  | Notes                                                                |
+|-----------------|---------------|---------|----------------------------------------------------------------------|
+| `validate`      | `31185800696` | success | Attempt 2 passed every job after the transient runner failure below  |
+| `security-scan` | `31185801938` | success | Push security jobs passed; dependency review skipped by event design |
+| `release`       | `31185799319` | success | Disabled semantic path resolved to an intentional no-op              |
+
+Attempt 1 of validation run `31185800696` failed before checkout only on the macOS
+runner because the downloaded `astral-sh/setup-uv` `action.yml` was empty or invalid.
+The same immutable action SHA succeeded in the PR, its upstream blob was valid, and
+the failed-job rerun passed without a repository change. This was runner-side action
+download corruption, not a product or workflow defect.
+
+The first bootstrap dispatch, run `31186319883`, safely completed the gate,
+bootstrap preconditions, artifact build, metadata inspection, archive inspection,
+wheel smoke test, and immutable artifact upload. GitHub then skipped `publish` and
+`finalize-bootstrap`: its implicit success guard propagated the deliberately skipped
+semantic branch even though the explicit build prerequisite succeeded. No PyPI file,
+tag, or GitHub release was created.
+
+PR 2 fixed both transitions by using `always()` with explicit successful
+prerequisites. Validation run `31186784378` and security run `31186786399` passed on
+exact head `a2340c2790e4c692e25c0199d84a832c65beb6d4`, including dependency review,
+all three golden platforms, all three clean installed-wheel smoke platforms, and all
+12 required checks. Its protected squash merge produced commit
+`9a38c9f4f79395890f4660e6d5d9e43bc7d88b1e`.
+
+The exact merge commit then passed automatic validation run `31186960325`, security
+run `31186960371`, and disabled semantic no-op run `31186959315` before bootstrap was
+retried.
+
+Protected bootstrap run `31187111987` succeeded end to end on that commit. Artifact
+`8997280019`, named `release-dist`, was downloaded before environment approval. Its
+inventory matched the two files byte for byte. Strict metadata validation, archive
+inspection, a no-cache wheel rebuild from the exact sdist, 27-member wheel
+equivalence, a clean CPython 3.14.6 install, all 51 public imports, and the complete
+CLI/install/drift/rollback/unmanaged-target smoke suite passed locally. Only then was
+environment `pypi` approved by `netopsengineer`.
+
+The publish job re-downloaded the artifact, re-verified both inventory digests,
+removed only `inventory.json`, and published through OIDC Trusted Publishing with
+attestations enabled. It contained no checkout, dependency installation, rebuild, or
+cache. PyPI accepted the wheel at `2026-08-07T14:26:59.685378Z` and the sdist at
+`2026-08-07T14:27:01.111958Z`. Finalization then created `v0.1.0` and the GitHub
+release; the tag points to
+`9a38c9f4f79395890f4660e6d5d9e43bc7d88b1e`.
+
+Public endpoints: [PyPI 0.1.0](https://pypi.org/project/agents-md-compiler/0.1.0/)
+and [GitHub v0.1.0 release](https://github.com/netopsengineer/agents-md-compiler/releases/tag/v0.1.0).
+
+Public PyPI JSON reports the exact approved sizes and SHA-256 values shown above,
+`requires_python` as `>=3.14`, and neither file yanked. The Integrity API exposes one
+attestation bundle per file with this publisher identity:
+
+| Field       | Value                               |
+|-------------|-------------------------------------|
+| Kind        | GitHub                              |
+| Repository  | `netopsengineer/agents-md-compiler` |
+| Workflow    | `release.yml`                       |
+| Environment | `pypi`                              |
+
+`pypi-attestations` 0.0.30 was resolved live from PyPI, its GitHub latest release
+and latest tag both resolved to `v0.0.30`, and OSV returned zero advisories for that
+exact version. It cryptographically verified both public distribution URLs against
+`https://github.com/netopsengineer/agents-md-compiler`.
+
+A separate no-cache install of `agents-md-compiler==0.1.0` from
+`https://pypi.org/simple` into clean CPython 3.14.6 had no `direct_url.json`, imported
+all 51 public names, and passed the complete smoke suite. This proves the public index
+served the tested package rather than a repository path or warm cache.
+
+After all publication checks passed, repository variable
+`SEMANTIC_RELEASE_ENABLED` was set to `true`. Recovery run `31188014306` selected the
+semantic path on the tagged commit, repeated the release gate, and reported
+`released=false version=0.1.0 tag=v0.1.0` with the notice that no release-worthy
+commit existed. Its build, publish, and finalization jobs were skipped. The first
+enabled semantic run was therefore an idempotent no-op.
+
 ### GitHub Actions incident
 
 GitHub recorded direct `PushEvent` entries from actor `netopsengineer` for the
@@ -173,16 +264,16 @@ Both affected workflows were disabled and immediately re-enabled through the
 supported workflow API, then read back as active before the next PR synchronization
 event.
 
-The live [GitHub Actions incident](https://www.githubstatus.com/incidents/qcvjkzcs7j74)
+The [GitHub Actions incident](https://www.githubstatus.com/incidents/qcvjkzcs7j74)
 explains the missing runs. At 2026-08-06T22:18:09Z, GitHub reported Actions in a
 major outage and stated that webhook triggers remained throttled, with many push and
 pull request events not triggering new workflow runs.
 
-Status: `BLOCKED` by the external incident. Do not enable
-`SEMANTIC_RELEASE_ENABLED` or claim automatic delivery readiness until GitHub marks
-the incident resolved and a new repository event creates the expected workflow runs.
-Manual dispatch proves the workflow definitions and exact commit but does not prove
-automatic event delivery.
+GitHub later marked the incident resolved and its status summary returned all systems
+operational. Automatic PR runs `31129983690`, `31129984567`, `31186784378`, and
+`31186786399`, plus automatic main-push runs `31185799319`, `31185800696`,
+`31185801938`, `31186959315`, `31186960325`, and `31186960371`, prove that both event
+classes recovered. Status: `RESOLVED`; automatic delivery is no longer blocked.
 
 ## Decisions taken on evidence
 
@@ -230,7 +321,7 @@ does not apply here.
 
 ## GitHub release infrastructure
 
-Verified through the active `netopsengineer` session on 2026-08-06:
+Verified through the active `netopsengineer` session on 2026-08-07:
 
 - public repository `netopsengineer/agents-md-compiler` exists;
 - `compiler-release-bot` is owned by `netopsengineer`, has Metadata read and
@@ -240,7 +331,8 @@ Verified through the active `netopsengineer` session on 2026-08-06:
 - protected environment `pypi` requires review by `netopsengineer`;
 - active repository ruleset `protect-main` has ID `20529695` and targets only
   `refs/heads/main`;
-- repository variable `SEMANTIC_RELEASE_ENABLED` is absent;
+- repository variable `SEMANTIC_RELEASE_ENABLED` is `true`, set only after the
+  published files, provenance, tag, release, and public install passed;
 - secret scanning and push protection are enabled.
 
 The active ruleset blocks deletion and force pushes, requires linear history,
@@ -251,15 +343,18 @@ the release workflow can create its reviewed semantic-release commit without giv
 the App administration or workflow permissions.
 
 Every repository, App, secret, and environment operation used the active
-`netopsengineer` account.
+`netopsengineer` account. The configured Tribe account remained inactive and was not
+used.
 
-## Not verified, and why
+## Deferred non-blocking controls
 
-| Item                                                   | Blocking dependency                                      |
-|--------------------------------------------------------|----------------------------------------------------------|
-| Dependabot auto-merge                                  | Deliberately disabled until all prerequisites are tested |
-| First semantic-release run proving an idempotent no-op | Requires `v0.1.0` to exist                               |
-| Automatic event-triggered workflow delivery            | Requires incident `qcvjkzcs7j74` to resolve and a retest |
+| Item                      | Status and dependency                                             |
+|---------------------------|-------------------------------------------------------------------|
+| Dependabot auto-merge     | Deliberately disabled until all separate prerequisites are tested |
+| TestPyPI rehearsal        | Operator-declined; no TestPyPI project or publisher is configured |
+| Publish egress block mode | Needs an observed and reviewed complete endpoint allowlist        |
+| Blocking `uv audit`       | Waits for the upstream interface to leave experimental status     |
 
-The exact-commit manual-dispatch workflows are green. Automatic push-triggered
-and pull-request-triggered delivery remains blocked as recorded above.
+These controls are not release gates under the recorded decisions. Required local,
+pull request, protected-main, artifact, publication, provenance, public-install, and
+semantic no-op gates are green.
