@@ -1,23 +1,26 @@
-"""Assert every third-party automation reference is pinned to an immutable commit.
+"""Assert immutable automation pins and safe Dependabot label configuration.
 
-Two things must hold for this repository's supply chain (PY-CI-003, PY-SEC-009):
+Three things must hold for this repository's supply chain (PY-CI-003, PY-SEC-009):
 
 - every ``uses:`` in a workflow names a 40-hex commit SHA, with a trailing comment
   recording which tag that SHA came from; and
 - every third-party ``rev:`` in ``.pre-commit-config.yaml`` is a 40-hex commit SHA
-  carrying a ``# frozen: <tag>`` comment.
+  carrying a ``# frozen: <tag>`` comment; and
+- ``.github/dependabot.yml`` omits custom ``labels`` so GitHub creates and applies
+  Dependabot's default labels without repository provisioning.
 
-Both are easy to satisfy by hand and easy to lose by accident. An automated
+These controls are easy to satisfy by hand and easy to lose by accident. An automated
 dependency update that rewrites a pin to a mutable tag would silently undo the
 guarantee, and a mutable tag can be repointed at different code after review. This
 check turns that from something a reviewer has to notice into a gate.
 
 Scope: offline and structural. It proves each pin *is* an immutable SHA carrying a
-tag comment. It does not prove the SHA still corresponds to that tag, which requires
-network access and is recorded in docs/dependency-verification.md.
+tag comment and proves the Dependabot configuration does not override automatic
+labels. It does not prove a SHA still corresponds to its tag, which requires network
+access and is recorded in docs/dependency-verification.md.
 
-Line-oriented matching is deliberate rather than a YAML parse: the tag lives in a
-comment, and a YAML parser discards comments.
+Line-oriented matching is deliberate rather than a YAML parse: tag evidence lives in
+comments, while the forbidden Dependabot key is unambiguous on an active YAML line.
 """
 
 import argparse
@@ -41,6 +44,10 @@ LOCAL_REPO = re.compile(r"^\s*-?\s*repo:\s*local\s*$")
 # A tag comment must name a version. `# frozen: v1.2.3` and `# v1.2.3` both qualify;
 # a bare `# see below` does not.
 VERSION_IN_COMMENT = re.compile(r"v?\d+\.\d+")
+
+# Custom labels override Dependabot's defaults and must be provisioned separately.
+# Quoted keys and flow mappings are accepted YAML and must not bypass the gate.
+DEPENDABOT_LABELS = re.compile(r"(?:^|[^A-Za-z0-9_-])(?:labels|['\"]labels['\"])\s*:")
 
 
 def check_workflow(path: Path) -> list[str]:
@@ -132,14 +139,44 @@ def check_pre_commit(path: Path) -> list[str]:
     return findings
 
 
-def resolve(paths: Sequence[Path]) -> tuple[list[Path], list[Path]]:
-    """Split explicit paths into workflow files and pre-commit configurations.
+def check_dependabot(path: Path) -> list[str]:
+    """Reject custom labels in a Dependabot configuration.
+
+    Omitting the key preserves GitHub's documented behavior: Dependabot creates
+    its default dependency and ecosystem labels when they do not exist. Custom
+    labels require separate repository provisioning and are outside this project's
+    configuration contract.
+
+    Args:
+        path: Dependabot configuration file to check.
+
+    Returns:
+        Human-readable findings, empty when automatic labels remain enabled.
+    """
+    findings: list[str] = []
+    for number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        active, _, _ = line.partition("#")
+        if DEPENDABOT_LABELS.search(active):
+            findings.append(
+                f"{path}:{number}: custom Dependabot `labels` are forbidden; "
+                "omit the key so GitHub creates and applies its default labels"
+            )
+    return findings
+
+
+def resolve(
+    paths: Sequence[Path],
+) -> tuple[list[Path], list[Path], list[Path]]:
+    """Split paths into workflows, hook configs, and Dependabot configs.
 
     Args:
         paths: Files to check. Empty means discover the repository defaults.
 
     Returns:
-        Workflow files and pre-commit configuration files, each sorted.
+        Workflow files, pre-commit configurations, and Dependabot configurations,
+        each sorted.
     """
     if paths:
         candidates: Iterable[Path] = paths
@@ -148,17 +185,22 @@ def resolve(paths: Sequence[Path]) -> tuple[list[Path], list[Path]]:
             *sorted(Path(".github/workflows").glob("*.yml")),
             *sorted(Path(".github/workflows").glob("*.yaml")),
             Path(".pre-commit-config.yaml"),
+            Path(".github/dependabot.yml"),
+            Path(".github/dependabot.yaml"),
         ]
     workflows: list[Path] = []
     configs: list[Path] = []
+    dependabot_configs: list[Path] = []
     for path in candidates:
         if not path.is_file():
             continue
         if path.name.startswith(".pre-commit-config"):
             configs.append(path)
+        elif path.name in {"dependabot.yml", "dependabot.yaml"}:
+            dependabot_configs.append(path)
         elif path.parent.name == "workflows":
             workflows.append(path)
-    return sorted(workflows), sorted(configs)
+    return sorted(workflows), sorted(configs), sorted(dependabot_configs)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -168,37 +210,42 @@ def main(argv: Sequence[str] | None = None) -> int:
         argv: Argument vector, defaulting to ``sys.argv[1:]``.
 
     Returns:
-        ``0`` when every pin is immutable, ``1`` otherwise.
+        ``0`` when every automation invariant passes, ``1`` otherwise.
     """
     parser = argparse.ArgumentParser(
         prog="check_pins",
-        description="Assert workflow and hook pins are immutable commit SHAs.",
+        description="Assert immutable pins and safe Dependabot labels.",
     )
     parser.add_argument(
         "paths",
         nargs="*",
         type=Path,
-        help="files to check; defaults to the repository's workflows and hook config",
+        help="files to check; defaults to workflows, hooks, and Dependabot config",
     )
     arguments = parser.parse_args(argv)
-    workflows, configs = resolve(arguments.paths)
+    workflows, configs, dependabot_configs = resolve(arguments.paths)
 
     findings: list[str] = []
     for path in workflows:
         findings += check_workflow(path)
     for path in configs:
         findings += check_pre_commit(path)
+    for path in dependabot_configs:
+        findings += check_dependabot(path)
 
-    checked = len(workflows) + len(configs)
+    checked = len(workflows) + len(configs) + len(dependabot_configs)
     if not checked:
-        print("check_pins: no workflow or hook configuration found", file=sys.stderr)
+        print("check_pins: no automation configuration found", file=sys.stderr)
         return 1
     for finding in findings:
         print(f"FAIL: {finding}", file=sys.stderr)
     if findings:
         print(f"check_pins: {len(findings)} finding(s)", file=sys.stderr)
         return 1
-    print(f"check_pins: {checked} file(s) checked, every pin is an immutable SHA")
+    print(
+        f"check_pins: {checked} file(s) checked, pins are immutable and "
+        "Dependabot uses automatic labels"
+    )
     return 0
 
 
