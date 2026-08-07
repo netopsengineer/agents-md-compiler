@@ -406,7 +406,9 @@ jobs:
   publish:
     name: publish to PyPI
     needs: [resolve, build]
-    if: needs.build.result == 'success'
+    # `always()` prevents the deliberately skipped non-selected release path from
+    # activating GitHub's implicit success guard and skipping this transition.
+    if: always() && needs.resolve.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     # The protected environment is the operator's review point: the run waits here,
     # and the exact artifact can be downloaded and exercised before approval.
@@ -484,7 +486,14 @@ jobs:
   finalize-bootstrap:
     name: finalize the bootstrap release
     needs: [resolve, build, publish]
-    if: needs.resolve.outputs.path == 'bootstrap' && needs.publish.result == 'success'
+    # Keep the explicit prerequisite checks authoritative even though the semantic
+    # path is deliberately skipped during bootstrap.
+    if: |
+      always() &&
+      needs.resolve.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.publish.result == 'success' &&
+      needs.resolve.outputs.path == 'bootstrap'
     runs-on: ubuntu-latest
     permissions:
       # Creating a tag and a release is a contents write. It is not a protected-branch
