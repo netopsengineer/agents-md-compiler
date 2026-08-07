@@ -11,6 +11,11 @@
 # Cooldowns were chosen per ecosystem against the documented support matrix:
 # `uv` supports the SemVer-bump options; `pre-commit` and GitHub Actions support only
 # `default-days`, so only that option appears for them.
+#
+# Do not add an active `labels:` key. When the key is omitted, Dependabot creates
+# and applies its default dependency and ecosystem labels if they do not exist.
+# Custom labels require separate repository provisioning and are rejected by
+# `scripts/check_pins.py` so a missing label cannot break downstream automation.
 version: 2
 
 updates:

@@ -314,6 +314,37 @@ comment naming the tag in this table. Phase 8 reverifies these SHAs immediately
 before enabling bootstrap dispatch, because a tag can be moved after this record
 is written.
 
+## Dependabot label verification
+
+Verified on 2026-08-07 against GitHub's current
+[Dependabot customization documentation][dependabot-label-docs].
+When the `labels` option is omitted, Dependabot applies the `dependencies` and
+ecosystem labels and creates those default labels if they do not exist. A custom
+`labels` option overrides that behavior and introduces a separate repository-label
+provisioning dependency.
+
+The live
+[repository label inventory][repository-labels]
+contained the nine standard repository labels and no Dependabot-created labels.
+The repository had no current or historical Dependabot pull request, so the first
+Dependabot update must be allowed to create its defaults. `.github/dependabot.yml`
+therefore omits `labels`, and the aggregate `check-pins` gate rejects any future
+active `labels` key. This control changes no package version, Action pin, or runtime
+dependency, so release and tag resolution and an OSV advisory query are not
+applicable to this finding.
+
+| Claim                                     | Tool                 | Source                                               | Finding                                    |
+|-------------------------------------------|----------------------|------------------------------------------------------|--------------------------------------------|
+| Default labels are created automatically  | Official GitHub docs | [Official label behavior][dependabot-label-docs]     | Omit `labels` to retain automatic creation |
+| Current repository label inventory        | GitHub public page   | [Repository labels][repository-labels]               | Nine standard labels; no Dependabot labels |
+| Current Dependabot pull request inventory | GitHub public search | [Dependabot pull requests][dependabot-pull-requests] | No open or closed Dependabot pull requests |
+| Dependency or Action version change       | Local diff           | Configuration and checker changes                    | None                                       |
+| Package advisory scan requirement         | Dependency inventory | No package or Action version was introduced          | Not applicable                             |
+
+[dependabot-label-docs]: https://docs.github.com/en/enterprise-cloud@latest/code-security/tutorials/secure-your-dependencies/customizing-dependabot-prs#labeling-pull-requests-with-custom-labels
+[dependabot-pull-requests]: https://github.com/netopsengineer/agents-md-compiler/pulls?q=is%3Apr+author%3Aapp%2Fdependabot
+[repository-labels]: https://github.com/netopsengineer/agents-md-compiler/labels
+
 ## Public identity
 
 | Check                                         | Method                                                          | Result                                      |
@@ -341,6 +372,7 @@ was created and configured under that owner on 2026-08-06.
 | Both release and tag sources checked for each dependency          | pass                                            |
 | Every exact selected dependency has a recorded advisory result    | pass                                            |
 | Every Action and hook uses an immutable SHA with a verified tag   | pass                                            |
+| Dependabot retains automatic default-label creation               | pass on 2026-08-07                              |
 | No unresolved version placeholder remains                         | pass                                            |
 | Package-name availability rechecked before Phase 15               | pass; project created by protected OIDC publish |
 | One-off PEP 740 verifier version and advisory status live-checked | pass on 2026-08-07                              |

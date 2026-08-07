@@ -52,9 +52,19 @@ update can rewrite a pin to a mutable tag, and Dependabot's `pre-commit` ecosyst
 not documented to preserve SHA pins. The check is structural and offline; whether a
 SHA still corresponds to its tag is the live verification recorded above.
 
+The same gate checks `.github/dependabot.yml` and rejects any active `labels` key.
+GitHub's documented default is operationally safer here: Dependabot creates its
+default `dependencies` and ecosystem labels when they do not exist. Custom labels
+would require separate repository provisioning that this repository does not perform.
+The checked-in configuration therefore cannot name a label that is absent from a new
+or existing repository.
+
 Negative-path evidence, run against synthetic files outside the repository:
 a mutable `uses:` tag, a mutable hook `rev:`, and a SHA with no tag comment each
-produced exit code 1 with the offending path and line named.
+produced exit code 1 with the offending path and line named. On 2026-08-07, synthetic
+bare, quoted, and flow-mapping Dependabot `labels` keys were rejected while a
+commented example was ignored. The repository configuration passed with seven files
+checked.
 
 ## Effective permissions
 
