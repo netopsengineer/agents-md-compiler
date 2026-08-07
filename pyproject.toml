@@ -9,7 +9,7 @@ build-backend = "uv_build"
 
 [project]
 name = "agents-md-compiler"
-version = "0.1.0"
+version = "0.1.1"
 description = "Compile ordered Markdown policy modules into one deterministic, verifiable global AGENTS.md."
 readme = "README.md"
 requires-python = ">=3.14"
