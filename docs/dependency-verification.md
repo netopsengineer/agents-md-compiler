@@ -345,6 +345,45 @@ applicable to this finding.
 [dependabot-pull-requests]: https://github.com/netopsengineer/agents-md-compiler/pulls?q=is%3Apr+author%3Aapp%2Fdependabot
 [repository-labels]: https://github.com/netopsengineer/agents-md-compiler/labels
 
+## GitHub Actions annotation verification
+
+Verified on 2026-08-07 against the release and tag endpoints, immutable tag
+refs, exact pinned action metadata, and upstream documentation for
+`actions/create-github-app-token` and `astral-sh/setup-uv`.
+
+Both the latest release and newest tag are `v3.2.0` for
+`actions/create-github-app-token` and `v9.0.0` for `astral-sh/setup-uv`. Their
+tag refs resolve directly to the immutable SHAs already recorded in the Action
+table. No Action version or SHA changed.
+
+The pinned App-token action declares `client-id` as the supported input and
+marks legacy `app-id` with the deprecation message `Use 'client-id' instead.`
+Its README uses a repository variable for the client ID and a repository secret
+for the private key. The release workflow now follows that contract with
+`vars.RELEASE_APP_CLIENT_ID` and the existing
+`secrets.RELEASE_APP_PRIVATE_KEY`. The exact client ID was supplied by the
+operator from the private App's authenticated settings and preserved verbatim.
+
+The pinned setup-uv README documents that jobs sharing one dependency definition
+also share one cache key, that the first upload wins, and that concurrent uploads
+produce the observed cache-reservation warning. It also documents independent
+`restore-cache` and `save-cache` controls. The workflows now assign one writer per
+platform and event path; concurrent jobs either restore without saving or disable
+caching when they do not consume the dependency environment.
+
+OSV returned zero advisories for
+`GitHub Actions:actions/create-github-app-token@v3.2.0` and
+`GitHub Actions:astral-sh/setup-uv@v9.0.0`.
+
+| Claim                             | Tool                    | Source                                                                                       | Finding                                |
+|-----------------------------------|-------------------------|----------------------------------------------------------------------------------------------|----------------------------------------|
+| App-token release and newest tag  | GitHub API              | [App-token releases](https://github.com/actions/create-github-app-token/releases/tag/v3.2.0) | `v3.2.0`; recorded SHA remains current |
+| App-token input contract          | Exact pinned repository | [App-token README](https://github.com/actions/create-github-app-token/blob/v3.2.0/README.md) | Use `client-id`; legacy `app-id` warns |
+| setup-uv release and newest tag   | GitHub API              | [setup-uv releases](https://github.com/astral-sh/setup-uv/releases/tag/v9.0.0)               | `v9.0.0`; recorded SHA remains current |
+| setup-uv cache behavior           | Exact pinned repository | [setup-uv README](https://github.com/astral-sh/setup-uv/blob/v9.0.0/README.md)               | One uploader must own each shared key  |
+| Action advisory status            | OSV.dev batch query     | Exact selected Action versions                                                               | Zero advisories for both Actions       |
+| Version, SHA, or permission delta | Local diff              | Workflow configuration                                                                       | None; inputs and cache ownership only  |
+
 ## Public identity
 
 | Check                                         | Method                                                          | Result                                      |

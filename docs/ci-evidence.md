@@ -337,7 +337,10 @@ Verified through the active `netopsengineer` session on 2026-08-07:
 - `compiler-release-bot` is owned by `netopsengineer`, has Metadata read and
   Contents read/write permissions only, and is installed only on this
   repository;
-- repository secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` exist;
+- repository variable `RELEASE_APP_CLIENT_ID` and repository secret
+  `RELEASE_APP_PRIVATE_KEY` exist; the workflow uses no deprecated App ID input;
+- legacy secret `RELEASE_APP_ID` remains unused so this configuration-only change
+  does not delete repository state before its post-merge no-op release test;
 - protected environment `pypi` requires review by `netopsengineer`;
 - active repository ruleset `protect-main` has ID `20529695` and targets only
   `refs/heads/main`;
@@ -355,6 +358,37 @@ the App administration or workflow permissions.
 Every repository, App, secret, and environment operation used the active
 `netopsengineer` account. The configured Tribe account remained inactive and was not
 used.
+
+## GitHub Actions annotation remediation
+
+Successful v0.1.1 runs exposed two non-blocking annotation classes caused by local
+workflow configuration:
+
+- release run `31200451494` passed legacy `app-id` to
+  `actions/create-github-app-token`, whose pinned metadata deprecates that input;
+- validation run `31200685700`, security run `31200686600`, and release run
+  `31200451494` had concurrent setup-uv jobs attempt to reserve identical cache
+  keys.
+
+The App-token input now reads `vars.RELEASE_APP_CLIENT_ID` through the supported
+`client-id` field. The user-supplied value came from the authenticated private App
+settings. The private key remains in `secrets.RELEASE_APP_PRIVATE_KEY`; job
+permissions, App permissions, repository scope, and token lifetime are unchanged.
+
+Cache ownership is explicit:
+
+| Event or platform                          | Cache writer                         | Other jobs                                      |
+|--------------------------------------------|--------------------------------------|-------------------------------------------------|
+| Push, pull request, or validation dispatch | Linux `validate` gate                | Restore-only                                    |
+| Scheduled security scan                    | Linux security static-analysis job   | Cache disabled for the audit-only job           |
+| macOS and Windows validation               | Golden job for the matching platform | Smoke jobs keep the package cache disabled      |
+| Release and auto-fix                       | None                                 | Restore-only; subsequent validation owns writes |
+| Isolated Python prerelease signal          | None                                 | Cache disabled                                  |
+
+This keeps dependency-cache reuse without same-key write races. It does not change
+an Action version, immutable SHA, effective permission, dependency resolution, or
+release artifact. Live release, tag, input-schema, and OSV evidence is recorded in
+`docs/dependency-verification.md`.
 
 ## Deferred non-blocking controls
 

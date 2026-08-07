@@ -50,6 +50,9 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
+          # Push and pull-request runs restore the validate gate's cache. The
+          # weekly schedule is the sole writer when no validation run accompanies it.
+          save-cache: ${{ github.event_name == 'schedule' }}
 
       - name: Synchronize the locked environment
         run: uv sync --locked
@@ -156,6 +159,9 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
           version: ${{ env.UV_VERSION }}
+          # uv audit reads the lock and advisory service; it does not install the
+          # dependency environment and needs no package cache.
+          enable-cache: false
 
       - name: Audit the locked resolution
         # --frozen audits exactly what is committed and never re-resolves.

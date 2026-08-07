@@ -88,6 +88,8 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
+          # The validation run triggered by this job's push owns any cache write.
+          save-cache: false
 
       - name: Synchronize the locked environment
         run: uv sync --locked
