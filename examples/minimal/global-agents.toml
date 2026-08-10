@@ -2,10 +2,8 @@
 # mandatory. Sources resolve against this file's directory, never the process
 # working directory.
 #
-# The companion lock pins each source's absolute resolved path, byte size, and
-# SHA-256 digest. Absolute paths make a committed lock machine-specific, so run
-# `agents-md-compiler lock --manifest examples/minimal/global-agents.toml` after
-# checking out this repository before using the example for real.
+# The companion format-2 lock pins each source's lexical path, byte size, and
+# SHA-256 digest, so the committed lock is portable across checkout roots.
 schema_version = 1
 bundle_id = "example-global"
 default_target = "~/.codex/AGENTS.md"

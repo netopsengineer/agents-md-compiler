@@ -146,7 +146,7 @@ def test_inspecting_a_managed_target(bundle: Bundle) -> None:
     install_rendered(bundle)
     inspection = inspect_target(bundle.target)
     assert inspection.kind is TargetKind.MANAGED
-    assert inspection.declared_format == 1
+    assert inspection.declared_format == 2
     assert inspection.sha256 is not None
     assert inspection.mode is not None
 
@@ -158,11 +158,21 @@ def test_inspecting_an_unmanaged_target(tmp_path: Path) -> None:
     assert inspection.declared_format is None
 
 
-def test_a_future_format_target_is_unmanaged(tmp_path: Path) -> None:
+def test_a_format_1_target_remains_managed(tmp_path: Path) -> None:
     target = write_text_file(
         tmp_path / "AGENTS.md",
         "# Global Agent Instructions\n\n"
-        "<!-- agents-md-compiler:generated format=99 -->\n",
+        "<!-- agents-md-compiler:generated format=1 -->\n",
+    )
+    inspection = inspect_target(target)
+    assert inspection.kind is TargetKind.MANAGED
+    assert inspection.declared_format == 1
+
+
+def test_a_future_format_target_is_unmanaged(tmp_path: Path) -> None:
+    target = write_text_file(
+        tmp_path / "AGENTS.md",
+        "# Agent Instructions\n\n<!-- agents-md-compiler:generated format=99 -->\n",
     )
     inspection = inspect_target(target)
     assert inspection.kind is TargetKind.UNMANAGED

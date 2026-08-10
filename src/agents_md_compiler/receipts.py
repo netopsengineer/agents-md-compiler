@@ -6,7 +6,7 @@ never carries policy content: only paths, identifiers, digests, sizes, and modes
 
 A receipt path handed to ``rollback`` is untrusted input. Loading one therefore
 proves, before touching either recorded path, that the file is a regular
-non-symlink file under the expected per-bundle state root, that it validates
+non-symlink file under the expected state root, that it validates
 against schema version 1, that it records an install for this bundle, and that its
 target and backup paths belong to this invocation and that same state root.
 """
@@ -49,16 +49,16 @@ INSTALL_OPERATION = "install"
 ROLLBACK_OPERATION = "rollback"
 
 RECEIPTS_DIRNAME = "receipts"
-"""Subdirectory of the bundle state root that holds receipts."""
+"""Subdirectory of an accepted state root that holds receipts."""
 
 BACKUPS_DIRNAME = "backups"
-"""Subdirectory of the bundle state root that holds immutable backups."""
+"""Subdirectory of an accepted state root that holds immutable backups."""
 
 PRESERVED_DIRNAME = "preserved"
 """Where rollback moves a generated target instead of deleting it."""
 
 LOCKS_DIRNAME = "locks"
-"""Subdirectory of the bundle state root that holds advisory lock files."""
+"""Legacy subdirectory that held advisory lock files before shared locking."""
 
 LAST_INSTALLED_FILENAME = "last-installed.json"
 """Records the digest of the most recent successful install."""
@@ -616,7 +616,7 @@ def _read_receipt_bytes(path: Path, lexical: str | None, state_root: Path) -> by
     Args:
         path: Resolved receipt path.
         lexical: Receipt path as supplied.
-        state_root: Expected per-bundle state root.
+        state_root: Expected deployment or legacy state root.
 
     Returns:
         The exact receipt bytes.
@@ -674,7 +674,7 @@ def load_install_receipt(
 
     Args:
         path: Resolved receipt path.
-        state_root: Expected per-bundle state root.
+        state_root: Expected deployment or legacy state root.
         bundle_id: Bundle identifier this invocation is operating on.
         target: Target path this invocation resolved.
         lexical: Receipt path as supplied.
@@ -799,7 +799,7 @@ def list_receipts(state_dir: Path) -> tuple[Path, ...]:
     :func:`receipt_name` for why the timestamp must lead.
 
     Args:
-        state_dir: Per-bundle state directory.
+        state_dir: Deployment state directory.
 
     Returns:
         Receipt paths in sorted order, empty when none exist.
@@ -814,7 +814,7 @@ def list_backups(state_dir: Path) -> tuple[Path, ...]:
     """List backups recorded for one bundle.
 
     Args:
-        state_dir: Per-bundle state directory.
+        state_dir: Deployment state directory.
 
     Returns:
         Backup paths in sorted order, empty when none exist.

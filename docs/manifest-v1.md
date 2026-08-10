@@ -11,8 +11,8 @@ standard library, so the compiler needs no runtime dependency to read it.
 
 ```toml
 schema_version = 1
-bundle_id = "example-global"
-default_target = "~/.codex/AGENTS.md"
+bundle_id = "example-project"
+default_target = "../AGENTS.md"
 
 [[modules]]
 id = "core"
@@ -92,6 +92,12 @@ process happens to be running, except where the table below says so.
 Resolving manifest values against the manifest directory is what makes a manifest
 portable: moving the process working directory cannot change which files a
 reviewed manifest selects.
+
+`default_target` is deliberately scope-neutral. It may select the active global
+Codex file, a repository-root `AGENTS.md`, a nested `AGENTS.md`, or another
+explicit output. The schema does not infer repository boundaries or Codex scope.
+Codex visibility depends on the selected path and the startup working directory,
+and is checked separately by `verify-codex`.
 
 A leading `~` or `~user` is expanded through the standard home-directory lookup.
 Nothing else is expanded:
@@ -174,6 +180,11 @@ The lock records the exact manifest bytes' SHA-256. Editing the manifest at all,
 including a comment or whitespace, changes that digest and makes the lock stale.
 That is deliberate: it keeps the reviewed manifest and the lock coupled, so a
 reviewer cannot approve a manifest change that was never locked.
+
+Manifest schema version 1 is compatible with lock and rendered formats 1 and 2.
+Current releases emit lock and rendered format 2. A format-1 lock is migration
+input: it is parsed strictly, reported as `LOCK_STALE`, and replaced only by an
+explicit `lock` command.
 
 ## Machine-readable schema
 

@@ -281,6 +281,7 @@ class LockMissingError(CompilerError):
 class LockStaleProblem(StrEnum):
     """Why an on-disk lock no longer matches reality."""
 
+    FORMAT_CHANGED = "lock format differs from the current format"
     MANIFEST_CHANGED = "manifest bytes differ from the lock"
     SOURCES_CHANGED = "source bytes or paths differ from the lock"
     BUNDLE_ID_CHANGED = "bundle_id differs from the lock"
@@ -314,7 +315,7 @@ class LockStaleError(CompilerError):
 class RenderProblem(StrEnum):
     """Why rendered bytes were rejected."""
 
-    HEADER_MISMATCH = "generated header does not match format version 1"
+    HEADER_MISMATCH = "generated header does not match the current format"
     MISSING_SEPARATOR = "expected one empty line before a module marker"
     MARKER_MISMATCH = "module marker does not match the lock"
     CONTENT_DIGEST_MISMATCH = "module content digest does not match the lock"
@@ -363,7 +364,7 @@ class OutputExistsError(CompilerError):
 
 
 class ShadowedError(CompilerError):
-    """A non-empty global override would replace the target."""
+    """A non-empty sibling override would replace the target."""
 
     state: BundleState | None = BundleState.SHADOWED
 
@@ -477,7 +478,7 @@ class ReceiptProblem(StrEnum):
     MISSING = "receipt does not exist"
     SYMLINK = "receipt is a symbolic link"
     NOT_A_FILE = "receipt is not a regular file"
-    OUTSIDE_STATE_ROOT = "receipt is not under the expected bundle state root"
+    OUTSIDE_STATE_ROOT = "receipt is not under the expected state root"
     SYNTAX = "receipt is not valid JSON"
     NOT_AN_OBJECT = "receipt root is not an object"
     SCHEMA = "receipt does not match schema version 1"
@@ -550,7 +551,7 @@ class MutationProblem(StrEnum):
     REPLACE_FAILED = "atomically replacing the target failed"
     PERMISSION_FAILED = "applying the target permission mode failed"
     BACKUP_FAILED = "writing the backup failed"
-    STATE_ROOT_FAILED = "creating the bundle state directory failed"
+    STATE_ROOT_FAILED = "creating the state directory failed"
     LOCK_UNAVAILABLE = "acquiring the advisory lock failed"
     POSTCONDITION_FAILED = "the installed bytes do not match what was rendered"
     RECOVERY_FAILED = "recovering the prior target after a failed install failed"
@@ -594,6 +595,7 @@ class CodexProblem(StrEnum):
     MARKER_DUPLICATED = "a module marker appears more than once in the prompt input"
     SENTINEL_ABSENT = "a module content sentinel is not present in the prompt input"
     PROBE_CONTAMINATED = "the probe itself contains an expected marker or sentinel"
+    PROBE_DIRECTORY_INVALID = "the Codex startup directory is not a directory"
     OUTPUT_TOO_LARGE = "codex output exceeded the captured size limit"
 
 

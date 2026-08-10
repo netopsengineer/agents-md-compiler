@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from agents_md_compiler import paths
+from agents_md_compiler.locking import lock_path_for
 from agents_md_compiler.models import DISTRIBUTION_DIRECTORY
 
 
@@ -119,6 +120,30 @@ def test_bundle_state_dir_defaults_to_the_platform_root(
     assert paths.bundle_state_dir("demo") == (
         tmp_path / DISTRIBUTION_DIRECTORY / "demo"
     )
+
+
+def test_shared_locks_are_distribution_wide(tmp_path: Path) -> None:
+    expected = tmp_path / "_v2" / "locks"
+    assert paths.shared_lock_dir(state_root=tmp_path) == expected
+
+
+def test_two_bundles_targeting_one_path_share_one_lock(tmp_path: Path) -> None:
+    shared = paths.shared_lock_dir(state_root=tmp_path)
+    target = tmp_path / "repo" / "AGENTS.md"
+    first = lock_path_for(target, lock_dir=shared)
+    second = lock_path_for(target, lock_dir=shared)
+    assert first == second
+
+
+def test_deployment_state_is_qualified_by_bundle_and_target(tmp_path: Path) -> None:
+    first = paths.deployment_state_dir("demo", tmp_path / "a", state_root=tmp_path)
+    second = paths.deployment_state_dir("demo", tmp_path / "b", state_root=tmp_path)
+    other_bundle = paths.deployment_state_dir(
+        "other", tmp_path / "a", state_root=tmp_path
+    )
+    assert first.parent.name == "demo"
+    assert first != second
+    assert first != other_bundle
 
 
 def test_containment_accepts_the_root_itself(tmp_path: Path) -> None:

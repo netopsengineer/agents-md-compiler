@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/netopsengineer/agents-md-compiler/schemas/lock-v2.schema.json",
+  "title": "agents-md-compiler bundle lock, format version 2",
+  "description": "Portable deterministic lock recording lexical source identity. Contains identity only, never source content or checkout-specific resolved paths.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_id",
+    "format_version",
+    "manifest_sha256",
+    "modules"
+  ],
+  "properties": {
+    "bundle_id": {
+      "description": "Bundle identifier copied from the manifest.",
+      "$ref": "#/$defs/identifier"
+    },
+    "format_version": {
+      "description": "Lock format version.",
+      "type": "integer",
+      "const": 2
+    },
+    "manifest_sha256": {
+      "description": "Digest of the exact manifest file bytes.",
+      "$ref": "#/$defs/sha256"
+    },
+    "modules": {
+      "description": "Locked modules in semantic manifest order.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/lockedModule"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "lockedModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "id": {
+          "description": "Module identifier.",
+          "$ref": "#/$defs/identifier"
+        },
+        "source": {
+          "description": "Exact non-empty lexical source value from the manifest.",
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "description": "Digest of the canonical source bytes.",
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "description": "Canonical source byte count. A source is never empty.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

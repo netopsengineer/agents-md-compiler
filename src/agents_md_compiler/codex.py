@@ -17,16 +17,20 @@ the installed Codex lacks it or changes it, verification reports
 """
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import cast
 
 from agents_md_compiler.errors import CodexProblem, CodexVerificationError
 from agents_md_compiler.models import (
+    AGENTS_FILENAME,
+    OVERRIDE_FILENAME,
     BundleState,
     LockedModule,
     RenderedBundle,
@@ -53,6 +57,19 @@ MAX_OUTPUT_BYTES = 32 * 1024 * 1024
 
 MIN_SENTINEL_LENGTH = 24
 """Shortest accepted content sentinel, long enough to be unlikely by accident."""
+
+CODEX_HOME_ENV = "CODEX_HOME"
+"""Environment variable selecting the active Codex home."""
+
+DEFAULT_CODEX_HOME_DIRNAME = ".codex"
+"""Home-relative Codex directory used when ``CODEX_HOME`` is unset."""
+
+
+class VerificationContext(StrEnum):
+    """Codex instruction-discovery context used by a runtime probe."""
+
+    GLOBAL = "global"
+    PROJECT = "project"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +102,9 @@ class RuntimeVerification:
         sentinels_expected: Content sentinels the bundle requires.
         sentinels_found: Content sentinels located in the prompt input.
         probe_command: Exact argument vector used, for reproduction.
+        probe_cwd: Startup directory used, or ``None`` when failure occurred
+            before an isolated directory was created.
+        verification_context: Global or project instruction context.
         failure: Observed failure, or ``None`` on success.
     """
 
@@ -97,7 +117,51 @@ class RuntimeVerification:
     sentinels_expected: int
     sentinels_found: int
     probe_command: tuple[str, ...]
+    probe_cwd: Path | None
+    verification_context: VerificationContext
     failure: str | None
+
+
+def active_codex_home(*, environ: Mapping[str, str] | None = None) -> Path:
+    """Resolve the active Codex home without following symbolic links.
+
+    Args:
+        environ: Environment mapping. ``None`` reads the process environment.
+
+    Returns:
+        Absolute normalized Codex home path.
+    """
+    env = os.environ if environ is None else environ
+    configured = env.get(CODEX_HOME_ENV, "")
+    selected = (
+        Path(configured).expanduser()
+        if configured
+        else Path.home() / DEFAULT_CODEX_HOME_DIRNAME
+    )
+    if not selected.is_absolute():
+        selected = Path.cwd() / selected
+    return Path(os.path.normpath(selected))
+
+
+def verification_context_for_target(
+    target: Path, *, codex_home: Path | None = None
+) -> VerificationContext:
+    """Classify a selected target as active global or project-scoped.
+
+    Args:
+        target: Resolved selected target.
+        codex_home: Active Codex home override, primarily for tests.
+
+    Returns:
+        ``global`` only for the active base or override file.
+    """
+    home = active_codex_home() if codex_home is None else codex_home
+    global_targets = {home / AGENTS_FILENAME, home / OVERRIDE_FILENAME}
+    return (
+        VerificationContext.GLOBAL
+        if target in global_targets
+        else VerificationContext.PROJECT
+    )
 
 
 def resolve_executable(name: str = EXECUTABLE_NAME) -> Path:
@@ -125,8 +189,8 @@ def _run(
 ) -> subprocess.CompletedProcess[bytes]:
     """Run one command as an argument vector, never through a shell.
 
-    The parent environment is inherited on purpose: the probe must see the
-    operator's real Codex home, which is what holds the installed global file.
+    The parent environment is inherited on purpose: the probe must use the
+    operator's real Codex configuration and instruction discovery context.
     Nothing secret is read from that environment, and no value from it is logged.
 
     Args:
@@ -343,21 +407,24 @@ def inspect_prompt_input(
     capability: CodexCapability,
     *,
     expected: Sequence[str],
+    cwd: Path | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-) -> tuple[object, tuple[str, ...]]:
+) -> tuple[object, tuple[str, ...], Path]:
     """Run the prompt-input probe and return its decoded JSON.
 
-    The probe runs from a fresh empty directory, so no project instruction file can
-    contribute to the result and the only instructions in scope are global.
+    With no ``cwd``, the probe runs from a fresh empty directory so only global
+    instructions can contribute. A supplied directory exercises Codex project
+    discovery from that startup location.
 
     Args:
         capability: The detected Codex capability.
         expected: Markers and sentinels the caller will search for, checked against
             the probe itself first.
+        cwd: Existing project startup directory. ``None`` requests isolation.
         timeout_seconds: Deadline for the invocation.
 
     Returns:
-        The decoded JSON document and the exact argument vector used.
+        The decoded JSON document, exact argument vector, and startup directory.
 
     Raises:
         CodexVerificationError: The probe was contaminated, exited nonzero, timed
@@ -365,10 +432,51 @@ def inspect_prompt_input(
             that is not valid JSON.
     """
     command = (str(capability.path), *DEBUG_SUBCOMMAND, PROBE_PROMPT)
+    if cwd is not None:
+        if not cwd.is_dir():
+            raise CodexVerificationError(
+                CodexProblem.PROBE_DIRECTORY_INVALID,
+                detail=str(cwd),
+                command=command,
+            )
+        return _run_prompt_input(
+            command,
+            directory=cwd,
+            expected=expected,
+            timeout_seconds=timeout_seconds,
+        )
     with tempfile.TemporaryDirectory(prefix=PROBE_DIRECTORY_PREFIX) as raw_directory:
-        directory = Path(raw_directory)
-        _check_probe_is_clean(command, directory, expected)
-        completed = _run(command, timeout_seconds=timeout_seconds, cwd=directory)
+        return _run_prompt_input(
+            command,
+            directory=Path(raw_directory),
+            expected=expected,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+def _run_prompt_input(
+    command: tuple[str, ...],
+    *,
+    directory: Path,
+    expected: Sequence[str],
+    timeout_seconds: float,
+) -> tuple[object, tuple[str, ...], Path]:
+    """Execute and decode one prompt-input probe from a checked directory.
+
+    Args:
+        command: Exact Codex argument vector.
+        directory: Startup directory.
+        expected: Values that must not contaminate the probe itself.
+        timeout_seconds: Invocation deadline.
+
+    Returns:
+        The decoded JSON document, command, and startup directory.
+
+    Raises:
+        CodexVerificationError: The probe fails or returns unusable output.
+    """
+    _check_probe_is_clean(command, directory, expected)
+    completed = _run(command, timeout_seconds=timeout_seconds, cwd=directory)
     if completed.returncode != 0:
         raise CodexVerificationError(
             CodexProblem.PROBE_FAILED,
@@ -382,7 +490,7 @@ def inspect_prompt_input(
             command=command,
         )
     try:
-        return json.loads(completed.stdout.decode("utf-8")), command
+        return json.loads(completed.stdout.decode("utf-8")), command, directory
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise CodexVerificationError(
             CodexProblem.INVALID_JSON, detail=str(error), command=command
@@ -406,6 +514,7 @@ def verify_rendered_visibility(
     rendered: RenderedBundle,
     *,
     name: str = EXECUTABLE_NAME,
+    cwd: Path | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     capability_timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> RuntimeVerification:
@@ -414,6 +523,7 @@ def verify_rendered_visibility(
     Args:
         rendered: The rendered bundle that should be installed and visible.
         name: Executable name to resolve.
+        cwd: Project startup directory. ``None`` uses an isolated global probe.
         timeout_seconds: Deadline for the prompt-input invocation.
         capability_timeout_seconds: Independent deadline for each capability
             detection invocation.
@@ -431,8 +541,8 @@ def verify_rendered_visibility(
     capability = detect_capability(
         name=name, timeout_seconds=capability_timeout_seconds
     )
-    document, command = inspect_prompt_input(
-        capability, expected=expected, timeout_seconds=timeout_seconds
+    document, command, probe_cwd = inspect_prompt_input(
+        capability, expected=expected, cwd=cwd, timeout_seconds=timeout_seconds
     )
     strings = tuple(extract_strings(document))
 
@@ -469,6 +579,10 @@ def verify_rendered_visibility(
         sentinels_expected=len(sentinels),
         sentinels_found=len(sentinels),
         probe_command=command,
+        probe_cwd=probe_cwd,
+        verification_context=(
+            VerificationContext.GLOBAL if cwd is None else VerificationContext.PROJECT
+        ),
         failure=None,
     )
 
@@ -479,6 +593,8 @@ def unverified(
     capability: CodexCapability | None = None,
     markers_expected: int = 0,
     sentinels_expected: int = 0,
+    probe_cwd: Path | None = None,
+    verification_context: VerificationContext = VerificationContext.GLOBAL,
 ) -> RuntimeVerification:
     """Summarize a failure as an explicit ``RUNTIME_UNVERIFIED`` result.
 
@@ -487,6 +603,8 @@ def unverified(
         capability: What was learned about the CLI before failing, when anything.
         markers_expected: Marker lines the bundle requires.
         sentinels_expected: Content sentinels the bundle requires.
+        probe_cwd: Requested startup directory, when known.
+        verification_context: Global or project instruction context.
 
     Returns:
         The verification result, never ``CURRENT``.
@@ -501,5 +619,7 @@ def unverified(
         sentinels_expected=sentinels_expected,
         sentinels_found=0,
         probe_command=error.command,
+        probe_cwd=probe_cwd,
+        verification_context=verification_context,
         failure=str(error),
     )

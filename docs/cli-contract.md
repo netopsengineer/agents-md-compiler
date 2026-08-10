@@ -46,12 +46,17 @@ Path options, per command:
 
 | Option             | Commands                                                                   | Default                         |
 |--------------------|----------------------------------------------------------------------------|---------------------------------|
-| `--manifest PATH`  | `lock`, `validate`, `render`, `check`, `status`, `install`, `verify-codex` | `./global-agents.toml`          |
+| `--manifest PATH`  | `lock`, `validate`, `render`, `check`, `status`, `install`, `verify-codex` | discovery described below       |
 | `--lock PATH`      | `lock`, `validate`, `render`, `check`, `status`, `install`, `verify-codex` | manifest path plus `.lock.json` |
 | `--target PATH`    | `validate`, `check`, `status`, `install`, `verify-codex`, `rollback`       | manifest `default_target`       |
 | `--output PATH`    | `render`                                                                   | stdout                          |
 | `--directory PATH` | `init`                                                                     | `.`                             |
 | `--receipt PATH`   | `rollback`                                                                 | required, no default            |
+
+When `--manifest` is omitted, resolve `./agents-md.toml` first. If only the
+legacy `./global-agents.toml` exists, use it. If both exist, refuse the ambiguous
+invocation and require explicit `--manifest`. If neither exists, select
+`./agents-md.toml` so the missing-path diagnostic names the current default.
 
 Command-specific flags:
 
@@ -60,10 +65,12 @@ Command-specific flags:
 | `--check`                      | `lock`                | Read-only: exit nonzero if a fresh lock would differ                    |
 | `--locked`                     | `render`              | Require the on-disk lock to equal a freshly serialized lock             |
 | `--bundle-id IDENT`            | `init`                | Bundle identifier for the scaffolded manifest                           |
+| `--target PATH`                | `init`                | Target written to the scaffold manifest                                 |
 | `--apply`                      | `install`, `rollback` | Perform the mutation; without it the command is a dry run               |
 | `--replace-unmanaged`          | `install`             | Permit replacing a target with no recognized generated header           |
 | `--expect-target-sha256 HEX64` | `install`             | Required with `--replace-unmanaged`; digest captured before the dry run |
 | `--timeout SECONDS`            | `verify-codex`        | Prompt-input deadline; capability checks use an independent 60 seconds  |
+| `--cwd PATH`                   | `verify-codex`        | Codex startup directory for project or nested visibility                |
 | `--version`                    | top level             | Alias for the `version` command                                         |
 
 `validate` resolves a target but deliberately does not report the target's install
@@ -74,7 +81,13 @@ output. Its reportable states are therefore `CURRENT`, `LOCK_MISSING`, and
 `LOCK_STALE`, plus the invalid-input states, and its `target_sha256` is always
 `null`.
 
-`--apply` is mandatory for every mutation. Without it, `install` and `rollback`
+`init` writes `agents-md.toml`. Its default target is the active global
+`~/.codex/AGENTS.md`; an explicit relative `--target` is resolved from the
+invocation working directory and serialized relative to the scaffold directory
+when possible. The command prints the exact manifest-qualified `lock` command to
+run next.
+
+`--apply` is mandatory for every target mutation. Without it, `install` and `rollback`
 compute and report the complete plan, create nothing, and exit with the code for
 the state they report. A dry run never converts a safety refusal into success.
 
@@ -82,10 +95,10 @@ the state they report. A dry run never converts a safety refusal into success.
 
 | State                | Meaning                                                        |
 |----------------------|----------------------------------------------------------------|
-| `CURRENT`            | Locked sources render exactly to the active target             |
-| `DRIFTED`            | Active target exists but differs from a fresh locked render    |
-| `MISSING`            | Active target does not exist                                   |
-| `SHADOWED`           | A non-empty global `AGENTS.override.md` would replace it       |
+| `CURRENT`            | Locked sources render exactly to the selected target           |
+| `DRIFTED`            | Selected managed target differs from a fresh locked render     |
+| `MISSING`            | Selected target does not exist                                 |
+| `SHADOWED`           | A non-empty sibling `AGENTS.override.md` would replace it      |
 | `INVALID_MANIFEST`   | Manifest syntax or schema is invalid                           |
 | `INVALID_LOCK`       | Lock syntax, schema, or internal structure is invalid          |
 | `LOCK_MISSING`       | Required lock does not exist                                   |
@@ -107,6 +120,11 @@ Report the first applicable state:
 
 `CURRENT` is never reported when runtime verification was explicitly requested and
 did not complete.
+
+`CURRENT` is a byte-state claim about the selected target. It does not imply that
+the target is in the Codex discovery chain for an arbitrary working directory.
+Only a successful `verify-codex` invocation makes that visibility claim for its
+reported probe directory.
 
 ## Exit codes
 
@@ -230,14 +248,14 @@ differs from `lexical`.
 
 `status` adds:
 
-| Field              | Type           | Meaning                                                              |
-|--------------------|----------------|----------------------------------------------------------------------|
-| `override_path`    | string or null | Sibling `AGENTS.override.md` when the target is a global `AGENTS.md` |
-| `override_present` | boolean        | `true` when that override exists and is non-empty                    |
-| `state_root`       | string         | Resolved per-bundle state directory                                  |
-| `receipt_count`    | integer        | Receipts recorded for this bundle                                    |
-| `latest_receipt`   | string or null | Resolved path of the newest receipt                                  |
-| `backup_count`     | integer        | Backups recorded for this bundle                                     |
+| Field              | Type           | Meaning                                                      |
+|--------------------|----------------|--------------------------------------------------------------|
+| `override_path`    | string or null | Sibling override when the selected file is named `AGENTS.md` |
+| `override_present` | boolean        | `true` when that override exists and is non-empty            |
+| `state_root`       | string         | Target-qualified deployment state directory                  |
+| `receipt_count`    | integer        | Receipts recorded for this bundle and target                 |
+| `latest_receipt`   | string or null | Resolved path of the newest receipt                          |
+| `backup_count`     | integer        | Backups recorded for this bundle                             |
 
 `install` adds:
 
@@ -263,23 +281,27 @@ differs from `lexical`.
 
 `verify-codex` adds:
 
-| Field                | Type           | Meaning                                                 |
-|----------------------|----------------|---------------------------------------------------------|
-| `codex_path`         | string or null | Resolved executable                                     |
-| `codex_version`      | string or null | Captured `codex --version` output                       |
-| `capability_present` | boolean        | `debug prompt-input` is exposed                         |
-| `markers_found`      | integer        | Module markers located in the prompt input              |
-| `markers_expected`   | integer        | Module markers required                                 |
-| `sentinels_found`    | integer        | First and last module content sentinels located         |
-| `probe_command`      | array          | Exact argument vector used, for reproduction            |
-| `failure`            | string or null | Observed failure when the state is `RUNTIME_UNVERIFIED` |
+| Field                  | Type           | Meaning                                                 |
+|------------------------|----------------|---------------------------------------------------------|
+| `codex_path`           | string or null | Resolved executable                                     |
+| `codex_version`        | string or null | Captured `codex --version` output                       |
+| `capability_present`   | boolean        | `debug prompt-input` is exposed                         |
+| `markers_found`        | integer        | Module markers located in the prompt input              |
+| `markers_expected`     | integer        | Module markers required                                 |
+| `sentinels_found`      | integer        | First and last module content sentinels located         |
+| `probe_command`        | array          | Exact argument vector used, for reproduction            |
+| `probe_cwd`            | string or null | Startup directory used by the prompt-input probe        |
+| `verification_context` | string         | `global` or `project`                                   |
+| `failure`              | string or null | Observed failure when the state is `RUNTIME_UNVERIFIED` |
 
 `init` adds:
 
-| Field       | Type   | Meaning                          |
-|-------------|--------|----------------------------------|
-| `directory` | string | Resolved scaffold directory      |
-| `created`   | array  | Resolved paths created, in order |
+| Field          | Type   | Meaning                          |
+|----------------|--------|----------------------------------|
+| `directory`    | string | Resolved scaffold directory      |
+| `created`      | array  | Resolved paths created, in order |
+| `target_path`  | string | Resolved scaffold target         |
+| `next_command` | array  | Exact next lock argument vector  |
 
 `version` adds:
 
@@ -300,26 +322,47 @@ install, and because the version deliberately never enters rendered output.
 path is refused, with no backup and no replacement, because `install` is the
 command that owns replacement, backup, and rollback semantics.
 
-`lock` may replace only the lock path resolved for that invocation. It acquires an
-advisory lock, retains the pre-operation file state and digest, rechecks them
-before replacement, refuses a concurrent change with `CONCURRENT_CHANGE`, and
-writes atomically.
+`lock` may replace only the lock path resolved for that invocation. It acquires a
+distribution-wide advisory lock keyed only by the resolved lock path, retains the
+pre-operation file state and digest, rechecks them before replacement, refuses a
+concurrent change with `CONCURRENT_CHANGE`, and writes atomically.
 
 `install --apply` requires, in order:
 
 1. a valid manifest, valid sources, and a lock that matches both;
-2. no non-empty sibling `AGENTS.override.md` when the target is a global
+2. no non-empty sibling `AGENTS.override.md` when the selected target is named
    `AGENTS.md`;
 3. a target that is absent, or managed, or explicitly adopted through both
    `--replace-unmanaged` and a matching `--expect-target-sha256`;
 4. a target that is not a symbolic link;
-5. an advisory lock on the target, after which identity and digest are rechecked;
-6. a backup and a receipt recorded before success is reported.
+5. a distribution-wide advisory lock keyed only by the resolved target, after
+   which identity and digest are rechecked;
+6. a backup and receipt below the bundle-and-target deployment root before
+   success is reported.
 
-`rollback --apply` requires a regular non-symlink receipt under the expected bundle
-state root, a schema-valid receipt whose target and backup paths match the current
-invocation and that state root, and a target whose current digest equals the
-receipt's installed digest.
+`rollback --apply` requires a regular non-symlink receipt under either the current
+bundle-and-target deployment root or the legacy bundle-only root, a schema-valid
+receipt whose target and backup paths match the current invocation and the root
+that contains the receipt, and a target whose current digest equals the receipt's
+installed digest. New evidence is always written to the current deployment root.
+
+`verify-codex` first requires static `CURRENT`. If the selected target resolves to
+the active Codex home `AGENTS.md` or `AGENTS.override.md`, it uses an empty
+disposable startup directory and reports context `global`. Otherwise it reports
+context `project` and uses explicit `--cwd` or the target parent. The selected
+project directory must exist and be a directory. A successful result proves only
+that the rendered bytes appeared in Codex startup input for that directory.
+
+## Format migration
+
+- The compiler emits lock and rendered format 2.
+- A strict format-1 lock is accepted as migration input but is always
+  `LOCK_STALE`; only explicit `lock` replaces it.
+- Exact rendered formats 1 and 2 are managed targets. A format-1 target is
+  `DRIFTED` and upgrades through ordinary explicit install.
+- Unknown rendered formats remain unmanaged and require explicit adoption.
+- Existing `global-agents.toml` workflows remain available through explicit paths
+  and the unambiguous legacy default fallback.
 
 ## Compatibility commitments
 

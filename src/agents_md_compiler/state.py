@@ -28,9 +28,9 @@ from agents_md_compiler.lockfile import (
     serialize_lock,
 )
 from agents_md_compiler.models import (
-    GLOBAL_TARGET_FILENAME,
+    AGENTS_FILENAME,
     OVERRIDE_FILENAME,
-    RENDER_FORMAT_VERSION,
+    SUPPORTED_RENDER_FORMAT_VERSIONS,
     BundleLimits,
     BundleManifest,
     BundleState,
@@ -145,7 +145,7 @@ def inspect_target(path: Path, *, lexical: str | None = None) -> TargetInspectio
     format_value = declared_format(data)
     kind = (
         TargetKind.MANAGED
-        if format_value == RENDER_FORMAT_VERSION
+        if format_value in SUPPORTED_RENDER_FORMAT_VERSIONS
         else TargetKind.UNMANAGED
     )
     return TargetInspection(
@@ -195,7 +195,7 @@ def require_target_parent(path: Path, *, lexical: str | None = None) -> None:
 
 
 def inspect_override(target: Path) -> OverrideInspection:
-    """Detect a shadowing global override beside the target.
+    """Detect a shadowing sibling override beside the target.
 
     Shadowing applies only when the target is named ``AGENTS.md``, because that is
     the only case where Codex would prefer a sibling ``AGENTS.override.md``.
@@ -206,7 +206,7 @@ def inspect_override(target: Path) -> OverrideInspection:
     Returns:
         The override path that would apply and whether it is present and non-empty.
     """
-    if target.name != GLOBAL_TARGET_FILENAME:
+    if target.name != AGENTS_FILENAME:
         return OverrideInspection(path=None, present=False)
     override = target.parent / OVERRIDE_FILENAME
     try:

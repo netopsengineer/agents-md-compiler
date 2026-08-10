@@ -1,4 +1,4 @@
-"""Deterministic compiler for a single global ``AGENTS.md`` policy bundle.
+"""Deterministic compiler for one explicitly selected ``AGENTS.md`` bundle.
 
 The public surface is intentionally small. Pure computation (manifest parsing,
 source validation, locking, rendering, state comparison) lives here; every
@@ -10,7 +10,7 @@ Typical read-only use::
     from pathlib import Path
     from agents_md_compiler import compile_bundle, load_manifest
 
-    manifest = load_manifest(Path("global-agents.toml").absolute())
+    manifest = load_manifest(Path("agents-md.toml").absolute())
     compiled = compile_bundle(manifest)
     rendered_bytes = compiled.rendered.data
 """
@@ -19,7 +19,10 @@ from agents_md_compiler._version import distribution_version
 from agents_md_compiler.codex import (
     CodexCapability,
     RuntimeVerification,
+    VerificationContext,
+    active_codex_home,
     detect_capability,
+    verification_context_for_target,
     verify_rendered_visibility,
 )
 from agents_md_compiler.errors import (
@@ -106,7 +109,9 @@ __all__ = [
     "TargetKind",
     "UnmanagedTargetError",
     "UsageError",
+    "VerificationContext",
     "__version__",
+    "active_codex_home",
     "build_lock",
     "compile_bundle",
     "detect_capability",
@@ -121,6 +126,7 @@ __all__ = [
     "render_bundle",
     "serialize_lock",
     "validate_rendered",
+    "verification_context_for_target",
     "verify_rendered_visibility",
 ]
 

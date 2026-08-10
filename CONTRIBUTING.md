@@ -1,7 +1,8 @@
 # Contributing
 
-Thanks for helping. This project keeps a narrow scope on purpose: read
-[`AGENTS.md`](AGENTS.md) for what is in scope and what will be declined.
+Thanks for helping. This project keeps a narrow scope on purpose. The generated
+[`AGENTS.md`](AGENTS.md) is the repository contract; its canonical source is
+[`project-contract.md`](.agents/modules/project-contract.md).
 
 ## Local setup
 
@@ -94,6 +95,27 @@ It requires all of:
 6. full integration and active prompt verification.
 
 Never regenerate a golden file to make a test pass.
+
+## Changing this repository's AGENTS.md
+
+Do not edit the generated root `AGENTS.md` directly. Edit
+`.agents/modules/project-contract.md`, then run the repository dogfood flow:
+
+```bash
+uv run agents-md-compiler lock --manifest .agents/agents-md.toml
+uv run agents-md-compiler validate --manifest .agents/agents-md.toml
+uv run agents-md-compiler check --manifest .agents/agents-md.toml
+uv run agents-md-compiler install --manifest .agents/agents-md.toml
+uv run agents-md-compiler install --manifest .agents/agents-md.toml --apply
+uv run agents-md-compiler verify-codex \
+  --manifest .agents/agents-md.toml \
+  --cwd .
+```
+
+The first install is a read-only preview. Commit the canonical module, manifest,
+lock, and generated root together. Use unmanaged adoption flags only for the
+one-time bootstrap or an intentional recovery reviewed against the exact target
+digest.
 
 ## Tests
 

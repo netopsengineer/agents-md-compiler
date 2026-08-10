@@ -53,8 +53,9 @@ path restriction, is what bounds the source set in schema version 1.
   files are accepted.
 - A source whose resolved path equals the resolved target is rejected, so the
   compiler cannot read its own output.
-- A source path that is not representable as UTF-8 is rejected, because the lock
-  must record it unambiguously.
+- A lexical source path that is not representable as UTF-8 is rejected, because
+  the portable lock must record it unambiguously. Runtime-resolved source paths
+  remain diagnostic data and do not enter format-2 lock or rendered bytes.
 - Every path recorded in a diagnostic or receipt keeps both its lexical and its
   resolved form where the distinction affects safety.
 
@@ -71,6 +72,10 @@ Every such window in this tool is either closed or detected:
 | Target digest captured, then written      | The digest is recaptured after the advisory lock is held, and a mismatch refuses `CONCURRENT_CHANGE`                         |
 | Target inspected, then replaced           | Target identity is rechecked under the lock, and a symlink appearing late is refused                                         |
 | Receipt digest captured, then rolled back | The current target digest must equal the receipt's installed digest at rollback time                                         |
+
+Advisory locks live in one distribution-wide directory and are keyed only by the
+resolved protected path. Two bundle IDs therefore coordinate when they select
+the same lock or target. Bundle identity cannot partition that safety boundary.
 
 Advisory locks coordinate cooperating compiler instances. They cannot stop an
 uncooperative process and they do not guarantee semantics on a network
@@ -135,10 +140,13 @@ bidirectional or invisible control.
 - The compiler never invokes a shell. The only subprocess is `codex`, resolved from
   `PATH` and invoked with an explicit argument vector, no shell, a finite timeout,
   and bounded captured output.
-- The Codex probe runs from a disposable directory that contains no project
-  instruction file. No policy file is copied into it, and the probe text, directory
-  name, and argument vector are checked to contain none of the expected markers or
-  sentinels, so a marker found in the prompt input cannot have come from the probe
+- For an active global Codex target, the prompt-input probe runs from a disposable
+  directory that contains no project instruction file. For a project or nested
+  target, it runs from explicit `--cwd` or the target parent so Codex can exercise
+  its normal root-to-working-directory instruction chain.
+- No policy file is copied into a probe directory. The probe text, directory name,
+  and argument vector are checked to contain none of the expected markers or
+  sentinels, so a value found in prompt input cannot have come from the probe
   itself.
 - `verify-codex` sends no model request and requires no API authentication.
 
@@ -171,11 +179,12 @@ A receipt path is untrusted input, so before either of its recorded paths is rea
 or written:
 
 1. the receipt must be a regular file and not a symbolic link;
-2. it must live under the expected per-bundle state root for the current
-   invocation;
+2. it must live under the current bundle-and-target deployment root or the legacy
+   bundle-only root for the current invocation;
 3. it must validate against the receipt schema;
 4. its recorded target must match the target resolved for this invocation;
-5. its recorded backup path must live under the same expected state root.
+5. its recorded backup path must live under the same accepted root that contains
+   the receipt.
 
 A forged receipt pointing at an arbitrary target, a receipt symlink, and a receipt
 whose backup path escapes the state root are all refused before any I/O on the
@@ -192,7 +201,9 @@ referenced paths.
 | Installation created a target you want gone | Rollback moves the generated file into the state directory instead of deleting it                         |
 | Backup appears corrupted                    | Rollback verifies the backup digest before restoring and refuses on mismatch                              |
 | Codex debug interface changed               | `verify-codex` reports `RUNTIME_UNVERIFIED` with the exact command and failure; static gates remain valid |
-| A non-empty global override exists          | The refusal is `SHADOWED`; resolve the override explicitly, since Codex would load it instead             |
+| A non-empty sibling override exists         | The refusal is `SHADOWED`; resolve the override explicitly, since Codex would load it instead             |
+| A format-1 lock is selected                 | Run explicit `lock` to migrate it to portable format 2; read-only commands never rewrite it               |
+| A format-1 target is selected               | Run an explicit install; its exact bytes are backed up and remain receipt-roll-backable                   |
 
 ## Out of scope
 

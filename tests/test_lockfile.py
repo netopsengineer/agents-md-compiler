@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from conftest import GOLDEN, MANIFEST_FIXTURES, MODULE_FIXTURES, Bundle
+from conftest import GOLDEN, MANIFEST_FIXTURES, Bundle
 
 from agents_md_compiler import lockfile
 from agents_md_compiler.errors import (
@@ -36,15 +36,7 @@ def build_from(manifest_path: Path) -> tuple[BundleLock, bytes]:
 
 def test_serialization_matches_the_hand_authored_golden() -> None:
     lock, data = build_from(MANIFEST_FIXTURES / "minimal.toml")
-    expected_text = (GOLDEN / "minimal.lock.json.tmpl").read_text(encoding="utf-8")
-    for source_name in ("core.md", "python.md"):
-        escaped_source = json.dumps(
-            str(MODULE_FIXTURES / source_name), ensure_ascii=True
-        )[1:-1]
-        expected_text = expected_text.replace(
-            f"__SOURCE_DIR__/{source_name}", escaped_source
-        )
-    expected = expected_text.encode("utf-8")
+    expected = (GOLDEN / "minimal.lock.json.tmpl").read_bytes()
     assert data == expected
     assert lockfile.lock_digest(lock) == lockfile.sha256_bytes(expected)
 
@@ -90,12 +82,56 @@ def test_a_non_ascii_source_path_is_escaped(tmp_path: Path) -> None:
     data = build_from(manifest)[1]
     assert b"\\u00ff" in data
     assert data == data.decode("ascii").encode("ascii")
-    assert json.loads(data)["modules"][0]["resolved_source"].endswith("policÿy/core.md")
+    assert json.loads(data)["modules"][0]["source"] == "policÿy/core.md"
 
 
 def test_round_trip_through_parse(bundle: Bundle) -> None:
     lock, data = build_from(bundle.manifest)
     assert lockfile.parse_lock(data) == lock
+
+
+def test_format_1_lock_round_trips_only_as_migration_input(bundle: Bundle) -> None:
+    current, current_bytes = build_from(bundle.manifest)
+    document = json.loads(current_bytes)
+    document["format_version"] = 1
+    for module in document["modules"]:
+        source = module.pop("source")
+        module["resolved_source"] = str(bundle.root / source)
+    legacy_bytes = (
+        json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    ).encode()
+    legacy = lockfile.parse_lock(legacy_bytes)
+    assert legacy.format_version == 1
+    assert (
+        "resolved_source" in json.loads(lockfile.serialize_lock(legacy))["modules"][0]
+    )
+    assert lockfile.compare_locks(legacy, current) is LockStaleProblem.FORMAT_CHANGED
+
+
+def test_format_2_lock_is_portable_across_checkout_roots(tmp_path: Path) -> None:
+    first = make_portable_bundle(tmp_path / "first")
+    second = make_portable_bundle(tmp_path / "second")
+    assert build_from(first)[1] == build_from(second)[1]
+
+
+def make_portable_bundle(root: Path) -> Path:
+    """Create equal manifest and source bytes below a checkout root.
+
+    Args:
+        root: Checkout root to populate.
+
+    Returns:
+        The manifest path.
+    """
+    (root / "modules").mkdir(parents=True)
+    (root / "modules" / "core.md").write_bytes(b"# Core\n\nPortable.\n")
+    manifest = root / "agents-md.toml"
+    manifest.write_bytes(
+        b'schema_version = 1\nbundle_id = "portable"\n'
+        b'default_target = "AGENTS.md"\n\n'
+        b'[[modules]]\nid = "core"\nsource = "modules/core.md"\n'
+    )
+    return manifest
 
 
 def test_the_format_version_is_recorded(bundle: Bundle) -> None:
@@ -146,7 +182,7 @@ STRUCTURAL_FAILURES = [
     pytest.param({"format_version": "1"}, LockProblem.WRONG_TYPE, id="string-format"),
     pytest.param({"format_version": True}, LockProblem.WRONG_TYPE, id="bool-format"),
     pytest.param(
-        {"format_version": 2},
+        {"format_version": 3},
         LockProblem.UNSUPPORTED_FORMAT_VERSION,
         id="future-format",
     ),
@@ -205,9 +241,9 @@ MODULE_FAILURES = [
     pytest.param({"id": 3}, LockProblem.WRONG_TYPE, id="int-id"),
     pytest.param({"sha256": ...}, LockProblem.MISSING_KEY, id="no-sha"),
     pytest.param({"sha256": "z" * 64}, LockProblem.BAD_DIGEST, id="non-hex-sha"),
-    pytest.param({"resolved_source": ...}, LockProblem.MISSING_KEY, id="no-source"),
-    pytest.param({"resolved_source": ""}, LockProblem.WRONG_TYPE, id="empty-source"),
-    pytest.param({"resolved_source": 5}, LockProblem.WRONG_TYPE, id="int-source"),
+    pytest.param({"source": ...}, LockProblem.MISSING_KEY, id="no-source"),
+    pytest.param({"source": ""}, LockProblem.WRONG_TYPE, id="empty-source"),
+    pytest.param({"source": 5}, LockProblem.WRONG_TYPE, id="int-source"),
     pytest.param({"size_bytes": ...}, LockProblem.MISSING_KEY, id="no-size"),
     pytest.param({"size_bytes": 0}, LockProblem.BAD_SIZE, id="zero-size"),
     pytest.param({"size_bytes": -1}, LockProblem.BAD_SIZE, id="negative-size"),
@@ -329,7 +365,7 @@ def test_comparison_detects_reordered_modules(three_module_bundle: Bundle) -> No
 
 def test_comparison_detects_a_moved_source_path(bundle: Bundle) -> None:
     before, _ = build_from(bundle.manifest)
-    moved = replace(before.modules[0], resolved_source="/elsewhere/core.md")
+    moved = replace(before.modules[0], source="../elsewhere/core.md")
     after = replace(before, modules=(moved, *before.modules[1:]))
     assert lockfile.compare_locks(before, after) is LockStaleProblem.SOURCES_CHANGED
 

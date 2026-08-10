@@ -28,8 +28,8 @@ UTF8_BOM = b"\xef\xbb\xbf"
 def _check_path_encodable(spec: ModuleSpec) -> None:
     """Require the source path itself to be representable as UTF-8.
 
-    The lock records the resolved path, so a path that cannot round-trip through
-    UTF-8 could not be recorded unambiguously.
+    Runtime diagnostics and filesystem operations use the resolved path. A path
+    that cannot round-trip through UTF-8 would make those results ambiguous.
 
     Args:
         spec: The module to check.

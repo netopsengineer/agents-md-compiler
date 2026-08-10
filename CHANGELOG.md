@@ -16,9 +16,9 @@ against.
 
 ### Added
 
-- Deterministic compiler for a single global `AGENTS.md` bundle: strict manifest
-  parsing, explicit lockfile refresh, format-version-1 rendering with exact
-  source-byte preservation, and read-only state comparison.
+- Deterministic compiler for one explicit global, repository, nested, or custom
+  `AGENTS.md` target per manifest, with strict parsing, explicit lock refresh,
+  exact source-byte preservation, and read-only state comparison.
 - `init`, `lock`, `validate`, `render`, `check`, `status`, `install`, `rollback`,
   `verify-codex`, and `version` subcommands, with text and single-object JSON
   output and a stable exit-code contract.
@@ -30,11 +30,29 @@ against.
 - Frozen public format documentation for the manifest, lock, rendered bundle,
   CLI contract, and security model, plus JSON schemas shipped as package data.
 
+### Changed
+
+- Lock format 2 records lexical source paths so canonical locks are portable
+  across checkout roots. Rendered format 2 uses a scope-neutral title. Strict
+  format-1 artifacts remain migration input, and exact format-1 targets remain
+  managed for explicit upgrade and receipt-based rollback.
+- `init` now defaults to `agents-md.toml`, accepts an explicit target, and emits
+  portable manifest targets. The legacy `global-agents.toml` name remains an
+  unambiguous fallback when no neutral default exists.
+- Operational evidence is qualified by bundle and target. Advisory locks use a
+  distribution-wide target identity so different bundles cannot concurrently
+  mutate the same path. Typed install and rollback callers now provide that
+  shared lock directory explicitly.
+- `verify-codex` isolates active global targets and verifies project or nested
+  targets from an explicit valid startup directory.
+- This repository now dogfoods a compiled project-local `AGENTS.md` from
+  canonical policy under `.agents/`.
+
 ### Fixed
 
-- `init` now scaffolds the actual global `~/.codex/AGENTS.md` target instead of a
-  project-local `AGENTS.md`, and the quickstart explains persistent targets,
-  one-invocation overrides, standalone output, and required parent directories.
+- `init` scaffolds an explicit persistent target, and the quickstart explains
+  global and repository targets, one-invocation overrides, standalone output,
+  and required parent directories.
 - Target and render-output dry runs now reject a missing or non-directory parent
   before reporting the destination as merely missing.
 - A failure after target replacement now runs verified recovery under the same
