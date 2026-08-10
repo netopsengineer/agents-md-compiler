@@ -240,10 +240,15 @@ def check_release_workflow(path: Path) -> list[str]:
         ),
         "semantic-release": (
             "python-semantic-release/python-semantic-release@",
-            "commit: true",
+            "commit: false",
             "tag: false",
-            "push: true",
+            "push: false",
             "vcs_release: false",
+            "git diff --cached --name-only --no-renames -z",
+            "git diff --cached --check",
+            "CHANGELOG.md|pyproject.toml|uv.lock) ;;",
+            'git push origin "HEAD:refs/heads/main"',
+            "git ls-remote origin refs/heads/main",
         ),
         "gate-prepared": (
             "ref: ${{ needs.semantic-release.outputs.commit }}",
@@ -276,6 +281,19 @@ def check_release_workflow(path: Path) -> list[str]:
             for fragment in fragments
             if fragment not in block
         )
+
+    semantic_release_forbidden = ("commit: true", "tag: true", "push: true")
+    findings.extend(
+        f"{path}: `semantic-release` contains forbidden release control {fragment!r}"
+        for fragment in semantic_release_forbidden
+        if fragment in jobs["semantic-release"]
+    )
+    release_push_forbidden = ("git push --force", "git push -f")
+    findings.extend(
+        f"{path}: `semantic-release` contains forbidden force push {fragment!r}"
+        for fragment in release_push_forbidden
+        if fragment in jobs["semantic-release"]
+    )
 
     publish_forbidden = (
         "actions/checkout@",

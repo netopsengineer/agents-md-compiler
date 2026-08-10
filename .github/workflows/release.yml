@@ -13,7 +13,8 @@
 # Semantic (push to main, once the operator sets SEMANTIC_RELEASE_ENABLED):
 #
 #   the exact pushed change set contains a published package input
-#     -> python-semantic-release creates and pushes only the version commit
+#     -> python-semantic-release stages only the release-owned file changes
+#     -> the workflow validates, commits, and pushes exactly those changes
 #     -> unprivileged build job validates and uploads the exact dist artifact
 #     -> minimal publish job downloads and publishes that artifact
 #     -> finalize creates the tag and GitHub release after PyPI succeeds
@@ -36,7 +37,7 @@
 #   - the publish job performs no checkout, no install, and no build;
 #   - the published bytes are the exact bytes the build job hashed;
 #   - automatic releases require the exact push to change a package input;
-#   - python-semantic-release creates no tag or GitHub release;
+#   - python-semantic-release creates no commit, tag, or GitHub release;
 #   - every tag and GitHub release is created only after PyPI succeeds;
 #   - a release in progress is never cancelled;
 #   - an existing tag is never moved or replaced.
@@ -349,9 +350,10 @@ jobs:
           fi
           echo "tag ${tag} is free"
 
-  # Semantic path only. This job prepares and pushes the version commit to protected
-  # main, but creates no tag and no GitHub release. Those public release claims are
-  # deferred until the publish job proves PyPI accepted the exact artifact.
+  # Semantic path only. python-semantic-release stages the release-owned changes.
+  # This job validates, commits, and pushes exactly those paths to protected main,
+  # but creates no tag or GitHub release. Those public release claims are deferred
+  # until the publish job proves PyPI accepted the exact artifact.
   semantic-release:
     name: prepare the semantic release
     needs: [resolve, gate]
@@ -395,12 +397,12 @@ jobs:
         uses: python-semantic-release/python-semantic-release@39dd2052f2ce8282a5d932c31d58a2ca06d2550e # frozen: v10.6.1
         with:
           github_token: ${{ steps.app-token.outputs.token }}
-          # The version and changelog commit is pushed to protected main so the
-          # artifact can be built from an immutable commit. The tag and GitHub
-          # release are prohibited here and created by `finalize` only after PyPI.
-          commit: true
+          # Stage-only mode avoids the action's tagless commit_sha output defect.
+          # The next step validates the staged paths before it creates and pushes
+          # the prepared commit. Tags and releases remain finalizer-only state.
+          commit: false
           tag: false
-          push: true
+          push: false
           changelog: true
           vcs_release: false
           build: true
@@ -408,10 +410,8 @@ jobs:
           # No release-worthy commit means no commit and `released=false`.
           # Downstream jobs skip instead of manufacturing an empty release.
           strict: false
-          git_committer_name: "github-actions[bot]"
-          git_committer_email: "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Validate the prepared release
+      - name: Validate and push the prepared release
         id: prepared
         env:
           RELEASED: ${{ steps.psr.outputs.released }}
@@ -419,12 +419,44 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$RELEASED" != "true" ]; then
+            if ! git diff --quiet || ! git diff --cached --quiet ||
+               [ -n "$(git ls-files --others --exclude-standard)" ]; then
+              echo "semantic-release reported no release but changed the checkout" >&2
+              exit 1
+            fi
             echo "commit=" >>"$GITHUB_OUTPUT"
             echo "No release-worthy commit since the last tag. No-op."
             exit 0
           fi
 
-          commit=$(git rev-parse HEAD)
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "prepared version must have stable form MAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "semantic-release reported a release without staging changes" >&2
+            exit 1
+          fi
+          if ! git diff --quiet; then
+            echo "semantic-release left unstaged tracked changes" >&2
+            exit 1
+          fi
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "semantic-release left untracked files" >&2
+            exit 1
+          fi
+          git diff --cached --name-only --no-renames -z |
+            while IFS= read -r -d '' staged_path; do
+              case "$staged_path" in
+                CHANGELOG.md|pyproject.toml|uv.lock) ;;
+                *)
+                  echo "semantic-release staged forbidden path: $staged_path" >&2
+                  exit 1
+                  ;;
+              esac
+            done
+          git diff --cached --check
+
           declared=$(python3 -c "
           import pathlib, tomllib
           data = tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))
@@ -447,8 +479,34 @@ jobs:
           fi
 
           tag="v${VERSION}"
-          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+          if git show-ref --verify --quiet "refs/tags/${tag}" ||
+             git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
             echo "tag ${tag} exists before PyPI publication; refusing to continue" >&2
+            exit 1
+          fi
+
+          trigger_commit=$(git rev-parse HEAD)
+          git fetch --no-tags origin main
+          remote_commit=$(git rev-parse origin/main)
+          if [ "$trigger_commit" != "$remote_commit" ]; then
+            echo "origin/main changed during release preparation" >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit \
+            -m "chore(release): ${VERSION}" \
+            -m "Automatically generated by python-semantic-release"
+          commit=$(git rev-parse HEAD)
+          git push origin "HEAD:refs/heads/main"
+          pushed_commit=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$pushed_commit" != "$commit" ]; then
+            echo "protected main does not match prepared commit $commit" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "tag ${tag} appeared before PyPI publication" >&2
             exit 1
           fi
           echo "commit=$commit" >>"$GITHUB_OUTPUT"
