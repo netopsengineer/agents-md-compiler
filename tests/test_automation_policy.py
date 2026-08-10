@@ -18,6 +18,18 @@ def test_release_workflow_preserves_every_release_boundary() -> None:
     ("before", "after", "expected"),
     [
         ("          tag: false\n", "          tag: true\n", "tag: false"),
+        ("          commit: false\n", "          commit: true\n", "commit: false"),
+        ("          push: false\n", "          push: true\n", "push: false"),
+        (
+            "CHANGELOG.md|pyproject.toml|uv.lock) ;;",
+            "CHANGELOG.md|pyproject.toml|uv.lock|src/**) ;;",
+            "CHANGELOG.md|pyproject.toml|uv.lock) ;;",
+        ),
+        (
+            'git push origin "HEAD:refs/heads/main"',
+            'git push --force origin "HEAD:refs/heads/main"',
+            'git push origin "HEAD:refs/heads/main"',
+        ),
         (
             "python3 scripts/release_policy.py",
             "python3 scripts/release_policy_disabled.py",

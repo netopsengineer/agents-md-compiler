@@ -140,8 +140,14 @@ Do not open a public issue for a security problem. See
 Releases are automated and gated; contributors do not publish.
 
 - Do not bump `project.version` by hand. After `v0.1.0`, python-semantic-release
-  owns the version and changelog commit. It must not create the tag or GitHub
-  release.
+  stages the version, changelog, and lock changes. The release workflow validates
+  those exact paths before it creates and pushes the prepared commit.
+- If preparation wrote an unpublished version and then failed, restore the version
+  sources to the exact last public tag only in a reviewed recovery change and only
+  after proving that PyPI, the Git tag, and the GitHub Release are all absent.
+- Do not let python-semantic-release create a commit, tag, or GitHub release.
+  The workflow owns the prepared commit; the post-PyPI finalizer alone owns the
+  tag and GitHub Release.
 - Do not add a PyPI token anywhere. Publishing uses OIDC Trusted Publishing from a
   minimal job that performs no checkout, no dependency install, and no rebuild.
 - Create the tag and GitHub release only after PyPI accepts the exact gated

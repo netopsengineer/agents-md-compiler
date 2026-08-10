@@ -6,7 +6,8 @@ check that nothing moved during authoring. Point-in-time tables elsewhere are ev
 of a past verification, not permission to skip a current one.
 
 Action-pin verification date: 2026-08-07. Release and delivery evidence updated
-2026-08-07. Tooling: `gh api` against
+2026-08-07. The tagless release-preparation path was reverified on 2026-08-10.
+Tooling: `gh api` against
 `repos/{owner}/{repo}/releases/latest`, `/tags`, and `/git/refs/tags/{tag}`, with
 annotated tags resolved through `/git/tags/{object}` to their commit.
 
@@ -60,11 +61,11 @@ The checked-in configuration therefore cannot name a label that is absent from a
 or existing repository.
 
 For `release.yml`, the same gate requires the exact-push package eligibility
-check, python-semantic-release inputs that commit and push but do not tag or create
-a VCS release, the complete gate on the exact prepared commit, the minimal OIDC
-publish boundary, publication-success ordering in the shared finalizer, and a
-verification-only recovery path. It also rejects a checkout, dependency install,
-or build command in the privileged publish job.
+check, stage-only python-semantic-release inputs, an exact staged-path allowlist,
+a non-force protected-main push, the complete gate on the exact prepared commit,
+the minimal OIDC publish boundary, publication-success ordering in the shared
+finalizer, and a verification-only recovery path. It also rejects a checkout,
+dependency install, or build command in the privileged publish job.
 
 Negative-path evidence, run against synthetic files outside the repository:
 a mutable `uses:` tag, a mutable hook `rev:`, and a SHA with no tag comment each
@@ -443,8 +444,12 @@ The corrected workflow applies these controls:
 - The prepared `chore(release): VERSION` push resolves to a no-op. Its originating
   run alone owns the exact-commit gate, build, publication, and finalization, so a
   second workflow run cannot prepare another version while the first is incomplete.
-- python-semantic-release may create and push only the version and changelog
-  commit. Its pinned action receives `tag: false` and `vcs_release: false`.
+- python-semantic-release may stage only `CHANGELOG.md`, `pyproject.toml`, and
+  `uv.lock`. Its pinned action receives `commit: false`, `tag: false`,
+  `push: false`, and `vcs_release: false`.
+- The workflow rejects every other staged, unstaged, or untracked path, checks the
+  stable version and unchanged remote main, creates the canonical release commit,
+  and pushes it without force through the short-lived Release App token.
 - The exact prepared version commit must pass the aggregate gate before the
   artifact is built or published.
 - The shared `finalize` job depends on successful PyPI publication before creating
@@ -463,6 +468,71 @@ digests, and matched each attested subject and Trusted Publisher identity. A fre
 sdist-derived and direct wheels matched across all 27 members; and the wheel passed
 the complete smoke suite in clean CPython 3.14.6. Post-merge operational evidence
 is not claimed by this pre-merge correction record.
+
+## v1.0.0 tagless output failure and repair
+
+Merge commit `ad6d39961a0a5bb01cb6e8b926621d4372a441de` passed every
+required pull request check. Release run
+[`31435748482`](https://github.com/netopsengineer/agents-md-compiler/actions/runs/31435748482)
+then classified the breaking change as version 1.0.0, passed the source-commit
+gate, and invoked the pinned python-semantic-release v10.6.1 action with
+`commit: true`, `tag: false`, and `push: true`.
+
+The action created and pushed prepared commit
+`daa600d2e4c937eabfca6d0229ee41409f8c27eb`, then failed while serializing its
+GitHub Actions outputs with `some required outputs were not set: commit_sha`.
+The pinned implementation assigns `commit_sha` only inside its tag-creation
+branch, while its persistent output mode requires that value after a commit.
+Disabling tags therefore made the action fail after its protected-main write.
+The commit changed only `project.version` and the root package version in
+`uv.lock` from 0.1.2 to 1.0.0; it did not change `CHANGELOG.md`.
+
+The failure happened before artifact build or publication. PyPI remained at
+0.1.2, and no `v1.0.0` tag or GitHub Release existed. The prepared commit's
+independent validate, security, and release no-op runs all passed. Recovery was
+not dispatched because the recovery contract applies only after successful PyPI
+publication.
+
+An exact retry-state probe added the reviewed fix commit after `daa600d2`, then
+ran v10.6.1 with action-equivalent stage-only flags and no credentials. It again
+computed 1.0.0 and emitted the expected release notes, but staged no file because
+the failed commit had already written both version sources. The workflow's
+release-without-staged-changes guard would correctly reject that state.
+
+The reviewed repair therefore restores only `project.version` and the root
+package version in `uv.lock` to the last public tag, 0.1.2. This restoration is
+permitted only because live checks proved that PyPI 1.0.0, tag `v1.0.0`, and the
+GitHub Release were absent. The failed commit remains in history. On the repaired
+run, stage-only semantic-release must rewrite those exact two paths to 1.0.0 and
+the repository-owned step must create a fresh prepared commit from them.
+
+A decisive second retry-state probe used that restoration. Pinned v10.6.1
+reported `released=true`, `version=1.0.0`, and an empty `commit_sha`; left `HEAD`
+unchanged; staged exactly `pyproject.toml` and `uv.lock`, with only the two
+0.1.2-to-1.0.0 version changes; left no unstaged or untracked file; and created
+no tag. The staged-path, version, and whitespace validations all accepted the
+result. No push was attempted.
+
+The repaired path keeps the current immutable v10.6.1 pin but uses its supported
+stage-only mode. The repository-owned step validates the exact staged files and
+version, proves remote main did not change, creates the canonical prepared
+commit, pushes without force, confirms the remote commit identity, and rechecks
+that no release tag exists. The prepared commit must still pass the full gate
+before build and publication, and finalization remains post-PyPI only.
+
+Live re-verification on 2026-08-10 found v10.6.1 as both the latest upstream
+release and newest tag. Its annotated tag resolves to the existing immutable
+workflow SHA `39dd2052f2ce8282a5d932c31d58a2ca06d2550e`. OSV returned no
+advisory for the selected action or PyPI package. No dependency or Action pin
+changed in this repair.
+
+An isolated no-push probe ran the exact v10.6.1 package with action-equivalent
+flags against `ad6d39961a0a5bb01cb6e8b926621d4372a441de`. Stage-only
+execution reported `released=true`, `version=1.0.0`, and an empty `commit_sha`;
+left `HEAD` unchanged; staged only `pyproject.toml` and `uv.lock`; left no
+unstaged files; and created no local tag. This reproduces the otherwise
+problematic empty output while proving that the repository-owned preparation
+step can safely consume the stage-only result before any remote write.
 
 ## Deferred non-blocking controls
 

@@ -234,8 +234,11 @@ Ordered, and no gate may be skipped:
    `src/agents_md_compiler/`;
 6. require an explicit `workflow_dispatch` `release` operation and semantic level
    for an intentional repository-only publication;
-7. allow python-semantic-release to push only the version and changelog commit;
-   prohibit it from creating the tag or GitHub release;
+7. allow python-semantic-release to stage only `CHANGELOG.md`, `pyproject.toml`,
+   and `uv.lock`; require the workflow to reject every other tree change, verify
+   the stable version and unchanged remote main, then create and non-force push
+   the exact prepared commit with the short-lived Release App token; prohibit
+   python-semantic-release from creating a commit, tag, or GitHub release;
 8. rerun the aggregate gate against the exact prepared semantic-release commit
    before building or publishing it;
 9. publish version `0.1.0` only through the `workflow_dispatch` bootstrap path,
@@ -253,18 +256,19 @@ Ordered, and no gate may be skipped:
 
 ## Failure and recovery
 
-| Failure                                    | Required action                                                                                                                                            |
-|--------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Any required check fails or is unavailable | Report it explicitly; the state is not reached. Do not weaken the check.                                                                                   |
-| Source drift during an operation           | Abort with `INVALID_SOURCE`; emit no partial output                                                                                                        |
-| Lock disagrees with manifest or sources    | Exit 2 with `LOCK_STALE`; refresh the lock through `lock`, never by hand                                                                                   |
-| Format-1 lock selected                     | Exit 2 with `LOCK_STALE`; migrate only through explicit `lock`                                                                                             |
-| Target changed after precondition capture  | Exit 3 with `CONCURRENT_CHANGE`; never overwrite                                                                                                           |
-| Non-empty sibling override present         | Exit 3 with `SHADOWED`; resolve the override explicitly                                                                                                    |
-| Post-install gate failure                  | Preserve evidence, confirm the target still matches the receipt, run receipt-based rollback, verify the restored digest, stop in `ROLLED_BACK`             |
-| Codex debug command missing or changed     | Return `RUNTIME_UNVERIFIED` with the exact command and observed failure; never invent a log parser and never ask a model to summarize its own instructions |
-| Golden file mismatch                       | Treat as a format change and follow the format-version procedure                                                                                           |
-| PyPI succeeds but finalization fails       | Dispatch `recover` with the exact version and prepared commit; verify main ancestry and public PyPI files, then create only missing tag or release state   |
+| Failure                                    | Required action                                                                                                                                                                                                                                                 |
+|--------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Any required check fails or is unavailable | Report it explicitly; the state is not reached. Do not weaken the check.                                                                                                                                                                                        |
+| Source drift during an operation           | Abort with `INVALID_SOURCE`; emit no partial output                                                                                                                                                                                                             |
+| Lock disagrees with manifest or sources    | Exit 2 with `LOCK_STALE`; refresh the lock through `lock`, never by hand                                                                                                                                                                                        |
+| Format-1 lock selected                     | Exit 2 with `LOCK_STALE`; migrate only through explicit `lock`                                                                                                                                                                                                  |
+| Target changed after precondition capture  | Exit 3 with `CONCURRENT_CHANGE`; never overwrite                                                                                                                                                                                                                |
+| Non-empty sibling override present         | Exit 3 with `SHADOWED`; resolve the override explicitly                                                                                                                                                                                                         |
+| Post-install gate failure                  | Preserve evidence, confirm the target still matches the receipt, run receipt-based rollback, verify the restored digest, stop in `ROLLED_BACK`                                                                                                                  |
+| Codex debug command missing or changed     | Return `RUNTIME_UNVERIFIED` with the exact command and observed failure; never invent a log parser and never ask a model to summarize its own instructions                                                                                                      |
+| Golden file mismatch                       | Treat as a format change and follow the format-version procedure                                                                                                                                                                                                |
+| Release preparation fails before PyPI      | Inspect main for a prepared commit. Never use `recover`. After proving the version is absent from PyPI, tags, and releases, restore version sources to the last public tag in the reviewed fix, then prepare and gate a fresh commit without rewriting history. |
+| PyPI succeeds but finalization fails       | Dispatch `recover` with the exact version and prepared commit; verify main ancestry and public PyPI files, then create only missing tag or release state                                                                                                        |
 
 Rollback restores exact prior bytes only when the target still matches the
 receipt's installed digest. Backups are never deleted automatically.

@@ -106,6 +106,24 @@ tag list was used only to confirm the selected version exists as a tag.
   `uv_build>=0.12.2,<0.13`.
 - Your call: approved by the operator on 2026-08-06.
 
+### uv: 0.12.2 -> 0.12.3 deferred
+
+- Risk level: ROUTINE
+- Verified via: PyPI, GitHub `/releases/latest`, GitHub `/tags`, the official
+  0.12.3 release notes, and OSV on 2026-08-10.
+- What changed: CPython 3.13.15 availability, performance improvements, preview
+  workspace and cache-output features, and documentation corrections.
+- Breaking changes: none reported for this repository's commands or build path.
+- Migration steps: update every workflow `UV_VERSION` value and the
+  python-semantic-release build pin together, regenerate `uv.lock`, and rerun the
+  complete local, CI, and artifact gates.
+- Security advisories: none found for the selected 0.12.2 version through OSV.
+- Recommendation: retain 0.12.2 while repairing the failed 1.0.0 release. The
+  patch release contains no fix required by this incident, and changing the build
+  tool would add unrelated variance to release recovery.
+- Your call: deferral approved by the operator on 2026-08-10. Handle 0.12.3 as a
+  separate routine dependency update after publication.
+
 ### jsonschema: missing record corrected
 
 `jsonschema` was already selected and locked at 4.26.0, but the prior evidence
@@ -407,11 +425,12 @@ The exact pinned
 declares the `commit`, `tag`, `push`, `changelog`, `vcs_release`, `build`, and
 `force` inputs used by the corrected workflow. Inspection of the pinned action
 implementation confirmed that `tag: false` maps to `--no-tag` and
-`vcs_release: false` maps to `--no-vcs-release`, while `commit: true` and
-`push: true` retain the prepared version commit on protected main. The action's
-`commit_sha` output is populated only while creating a tag, so the workflow
-records `git rev-parse HEAD` after preparation instead of trusting an empty
-output when tagging is disabled.
+`vcs_release: false` maps to `--no-vcs-release`. It also confirmed the v1.0.0
+failure mechanism: persistent output requires `commit_sha`, but v10.6.1 assigns
+that value only while creating a tag. The repaired workflow therefore selects
+`commit: false`, `tag: false`, and `push: false`. This supported stage-only mode
+emits the version decision without requiring `commit_sha`; the workflow then
+validates, commits, and non-force pushes exactly the release-owned paths.
 
 The exact selected versions of checkout, App-token, upload-artifact, setup-uv,
 and python-semantic-release had no OSV advisory. OSV returned historical
