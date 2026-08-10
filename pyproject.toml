@@ -10,7 +10,7 @@ build-backend = "uv_build"
 [project]
 name = "agents-md-compiler"
 version = "0.1.2"
-description = "Compile ordered Markdown policy modules into one deterministic, verifiable global AGENTS.md."
+description = "Compile ordered Markdown policy modules into a deterministic, verifiable AGENTS.md."
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
@@ -59,7 +59,7 @@ module-root = "src"
 # The execution plan stays in Git as durable evidence. A session-local goal file
 # is ignored. Neither file may ship. uv_build's sdist already includes only the
 # module root plus pyproject/readme/license, so these patterns are belt-and-braces:
-# Phase 9 asserts the real archive listings rather than trusting this configuration.
+# The artifact gate asserts real archive listings rather than trusting this configuration.
 source-exclude = [
     "codex-global-agents-compiler-execution-plan.md",
     "goal.md",

@@ -38,7 +38,7 @@ export USERPROFILE="$HOME"
 mkdir -p "$HOME/.codex"
 cd "$workdir"
 
-manifest="$workdir/bundle/global-agents.toml"
+manifest="$workdir/bundle/agents-md.toml"
 target="$HOME/.codex/AGENTS.md"
 failures=0
 
@@ -106,7 +106,7 @@ expect_rc 0 "--help" --help
 
 note "scaffold"
 expect_rc 0 "init" init --directory bundle --bundle-id smoke
-for f in bundle/global-agents.toml bundle/modules/core.md bundle/modules/python.md; do
+for f in bundle/agents-md.toml bundle/modules/core.md bundle/modules/python.md; do
   [ -f "$f" ] || fail "init did not create $f"
 done
 # init must refuse to clobber. Any other behavior would make the tool unsafe to
@@ -122,7 +122,7 @@ expect_rc 0 "validate" validate --manifest "$manifest"
 note "render"
 capture render --manifest "$manifest" --locked
 rendered="$out"
-for needle in '<!-- agents-md-compiler:generated format=1 -->' '<!-- bundle-id: smoke -->' \
+for needle in '<!-- agents-md-compiler:generated format=2 -->' '<!-- bundle-id: smoke -->' \
   'module-begin id=core' 'module-end id=core' 'module-begin id=python' 'module-end id=python'; do
   case "$rendered" in
     *"$needle"*) printf 'ok   %-46s present\n' "$needle" ;;
@@ -177,8 +177,8 @@ cp bundle/modules/core.md bundle/modules/python.md foreign/modules/
 sed \
   -e 's/^bundle_id = "smoke"$/bundle_id = "foreign"/' \
   -e 's|^default_target = "~/.codex/AGENTS.md"$|default_target = "AGENTS.md"|' \
-  bundle/global-agents.toml >foreign/global-agents.toml
-foreign_manifest="$workdir/foreign/global-agents.toml"
+  bundle/agents-md.toml >foreign/agents-md.toml
+foreign_manifest="$workdir/foreign/agents-md.toml"
 printf '# Hand written by the operator.\n' >"$workdir/foreign/AGENTS.md"
 expect_rc 0 "lock the foreign bundle" lock --manifest "$foreign_manifest"
 expect_state UNMANAGED_TARGET 3 "install refuses an unmanaged target" \

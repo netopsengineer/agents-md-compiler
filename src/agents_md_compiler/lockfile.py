@@ -1,7 +1,7 @@
 """Deterministic lock generation, parsing, and comparison.
 
 The lock is the pinning artifact. Its serialization is byte-exact and documented in
-``docs/rendered-format-v1.md``, because the rendered bundle records the lock's own
+``docs/rendered-format-v2.md``, because the rendered bundle records the lock's own
 digest, which makes the serialization part of the output format.
 
 Parsing is strict for the same reason manifest parsing is: a lock is reviewed
@@ -26,6 +26,7 @@ from agents_md_compiler.models import (
     IDENTIFIER_PATTERN,
     LOCK_FORMAT_VERSION,
     SHA256_PATTERN,
+    SUPPORTED_LOCK_FORMAT_VERSIONS,
     BundleLock,
     BundleManifest,
     LockedModule,
@@ -37,8 +38,11 @@ TOP_LEVEL_KEYS = frozenset(
 )
 """The only accepted top-level lock keys."""
 
-MODULE_KEYS = frozenset({"id", "resolved_source", "sha256", "size_bytes"})
-"""The only accepted locked module keys."""
+MODULE_KEYS_BY_VERSION = {
+    1: frozenset({"id", "resolved_source", "sha256", "size_bytes"}),
+    2: frozenset({"id", "source", "sha256", "size_bytes"}),
+}
+"""The only accepted locked module keys for each supported format."""
 
 
 def build_lock(
@@ -51,7 +55,7 @@ def build_lock(
         snapshots: Validated snapshots in manifest order.
 
     Returns:
-        A lock recording each source's resolved path, digest, and size.
+        A current-format lock recording each lexical source, digest, and size.
     """
     return BundleLock(
         bundle_id=manifest.bundle_id,
@@ -60,7 +64,7 @@ def build_lock(
         modules=tuple(
             LockedModule(
                 id=snapshot.id,
-                resolved_source=str(snapshot.resolved_source),
+                source=snapshot.lexical_source,
                 sha256=snapshot.sha256,
                 size_bytes=snapshot.size_bytes,
             )
@@ -83,6 +87,7 @@ def serialize_lock(lock: BundleLock) -> bytes:
     Returns:
         Canonical lock bytes.
     """
+    source_key = "resolved_source" if lock.format_version == 1 else "source"
     payload: dict[str, Any] = {
         "bundle_id": lock.bundle_id,
         "format_version": lock.format_version,
@@ -90,7 +95,7 @@ def serialize_lock(lock: BundleLock) -> bytes:
         "modules": [
             {
                 "id": module.id,
-                "resolved_source": module.resolved_source,
+                source_key: module.source,
                 "sha256": module.sha256,
                 "size_bytes": module.size_bytes,
             }
@@ -144,7 +149,11 @@ def _require_text(
 
 
 def _parse_modules(
-    document: dict[str, object], lock: Path | None, lexical: str | None
+    document: dict[str, object],
+    lock: Path | None,
+    lexical: str | None,
+    *,
+    format_version: int,
 ) -> tuple[LockedModule, ...]:
     """Parse the locked module array.
 
@@ -152,6 +161,7 @@ def _parse_modules(
         document: Decoded lock object.
         lock: Resolved lock path.
         lexical: Lock path as supplied.
+        format_version: Lock format selecting the source key and key set.
 
     Returns:
         Locked modules in recorded order.
@@ -180,7 +190,8 @@ def _parse_modules(
                 lexical=lexical,
             )
         module = cast("dict[str, object]", entry)
-        unknown = sorted(frozenset(module) - MODULE_KEYS)
+        module_keys = MODULE_KEYS_BY_VERSION[format_version]
+        unknown = sorted(frozenset(module) - module_keys)
         if unknown:
             raise LockError(
                 LockProblem.UNKNOWN_MODULE_KEY,
@@ -204,18 +215,19 @@ def _parse_modules(
             pattern_problem=LockProblem.BAD_DIGEST,
             pattern=SHA256_PATTERN,
         )
-        if "resolved_source" not in module:
+        source_key = "resolved_source" if format_version == 1 else "source"
+        if source_key not in module:
             raise LockError(
                 LockProblem.MISSING_KEY,
-                detail="resolved_source",
+                detail=source_key,
                 lock=lock,
                 lexical=lexical,
             )
-        resolved_source: object = module["resolved_source"]
-        if not isinstance(resolved_source, str) or not resolved_source:
+        source: object = module[source_key]
+        if not isinstance(source, str) or not source:
             raise LockError(
                 LockProblem.WRONG_TYPE,
-                detail="resolved_source must be a non-empty string",
+                detail=f"{source_key} must be a non-empty string",
                 lock=lock,
                 lexical=lexical,
             )
@@ -239,7 +251,7 @@ def _parse_modules(
         modules.append(
             LockedModule(
                 id=module_id,
-                resolved_source=resolved_source,
+                source=source,
                 sha256=digest,
                 size_bytes=size_bytes,
             )
@@ -261,7 +273,7 @@ def parse_lock(
         The validated lock.
 
     Raises:
-        LockError: The bytes violate any lock format version 1 rule.
+        LockError: The bytes violate a supported lock-format rule.
     """
     try:
         document: object = json.loads(data.decode("utf-8"))
@@ -304,10 +316,13 @@ def parse_lock(
             lock=lock,
             lexical=lexical,
         )
-    if format_version != LOCK_FORMAT_VERSION:
+    if format_version not in SUPPORTED_LOCK_FORMAT_VERSIONS:
         raise LockError(
             LockProblem.UNSUPPORTED_FORMAT_VERSION,
-            detail=f"{format_version}, expected {LOCK_FORMAT_VERSION}",
+            detail=(
+                f"{format_version}, expected one of "
+                f"{sorted(SUPPORTED_LOCK_FORMAT_VERSIONS)}"
+            ),
             lock=lock,
             lexical=lexical,
         )
@@ -331,7 +346,7 @@ def parse_lock(
         bundle_id=bundle_id,
         format_version=format_version,
         manifest_sha256=manifest_sha256,
-        modules=_parse_modules(root, lock, lexical),
+        modules=_parse_modules(root, lock, lexical, format_version=format_version),
     )
 
 
@@ -415,6 +430,8 @@ def compare_locks(on_disk: BundleLock, fresh: BundleLock) -> LockStaleProblem | 
     Returns:
         The most specific difference, or ``None`` when the two agree.
     """
+    if on_disk.format_version != fresh.format_version:
+        return LockStaleProblem.FORMAT_CHANGED
     if on_disk.bundle_id != fresh.bundle_id:
         return LockStaleProblem.BUNDLE_ID_CHANGED
     if on_disk.manifest_sha256 != fresh.manifest_sha256:

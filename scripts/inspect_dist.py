@@ -1,7 +1,7 @@
 """Inspect built distributions for content, identity, and reproducibility.
 
-Phase 8's CI jobs and Phase 9's local artifact gates run this same module, so a
-passing pipeline and a passing workstation check mean the same thing (PY-CI-001).
+CI artifact jobs and local artifact gates run this same module, so a passing
+pipeline and a passing workstation check mean the same thing (PY-CI-001).
 
 Three subcommands:
 
@@ -64,6 +64,7 @@ REQUIRED_WHEEL_MEMBERS = (
     "agents_md_compiler/py.typed",
     "agents_md_compiler/schemas/manifest-v1.schema.json",
     "agents_md_compiler/schemas/lock-v1.schema.json",
+    "agents_md_compiler/schemas/lock-v2.schema.json",
     "agents_md_compiler/schemas/receipt-v1.schema.json",
 )
 

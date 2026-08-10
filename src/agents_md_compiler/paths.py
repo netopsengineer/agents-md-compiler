@@ -16,6 +16,7 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+from agents_md_compiler.hashing import sha256_bytes
 from agents_md_compiler.models import DISTRIBUTION_DIRECTORY, LOCK_SUFFIX
 
 WINDOWS_STATE_ENV = "LOCALAPPDATA"
@@ -26,6 +27,15 @@ XDG_STATE_ENV = "XDG_STATE_HOME"
 
 POSIX_STATE_FALLBACK = ".local/state"
 """Home-relative POSIX state root used when ``XDG_STATE_HOME`` is unset."""
+
+STATE_V2_DIRNAME = "_v2"
+"""Namespace that cannot collide with a valid legacy bundle identifier."""
+
+DEPLOYMENTS_DIRNAME = "deployments"
+"""Distribution state subdirectory holding target-qualified evidence."""
+
+SHARED_LOCKS_DIRNAME = "locks"
+"""Distribution state subdirectory holding cross-bundle advisory locks."""
 
 
 def expand_leading_tilde(value: str) -> str:
@@ -89,7 +99,7 @@ def default_lock_path(manifest: Path) -> Path:
 
     Returns:
         The manifest path with ``.lock.json`` appended, so
-        ``global-agents.toml`` pairs with ``global-agents.toml.lock.json``.
+        ``agents-md.toml`` pairs with ``agents-md.toml.lock.json``.
     """
     return Path(str(manifest) + LOCK_SUFFIX)
 
@@ -123,7 +133,10 @@ def user_state_root(*, environ: Mapping[str, str] | None = None) -> Path:
 
 
 def bundle_state_dir(bundle_id: str, *, state_root: Path | None = None) -> Path:
-    """Locate the per-bundle state directory.
+    """Locate the legacy per-bundle state directory.
+
+    New operational evidence uses :func:`deployment_state_dir`. This helper stays
+    public so a version-1 receipt can be validated and rolled back in place.
 
     Args:
         bundle_id: Validated bundle identifier.
@@ -131,10 +144,41 @@ def bundle_state_dir(bundle_id: str, *, state_root: Path | None = None) -> Path:
             test ever touches a real user configuration path.
 
     Returns:
-        The per-bundle state directory, which may not exist yet.
+        The legacy per-bundle state directory, which may not exist yet.
     """
     root = user_state_root() if state_root is None else state_root
     return root / bundle_id
+
+
+def shared_lock_dir(*, state_root: Path | None = None) -> Path:
+    """Locate the distribution-wide advisory-lock directory.
+
+    Args:
+        state_root: Override for the distribution state root.
+
+    Returns:
+        The shared lock directory, which may not exist yet.
+    """
+    root = user_state_root() if state_root is None else state_root
+    return root / STATE_V2_DIRNAME / SHARED_LOCKS_DIRNAME
+
+
+def deployment_state_dir(
+    bundle_id: str, target: Path, *, state_root: Path | None = None
+) -> Path:
+    """Locate operational evidence for one bundle and resolved target.
+
+    Args:
+        bundle_id: Validated bundle identifier.
+        target: Absolute normalized target path.
+        state_root: Override for the distribution state root.
+
+    Returns:
+        The target-qualified deployment directory, which may not exist yet.
+    """
+    root = user_state_root() if state_root is None else state_root
+    target_digest = sha256_bytes(str(target).encode("utf-8"))
+    return root / STATE_V2_DIRNAME / DEPLOYMENTS_DIRNAME / bundle_id / target_digest
 
 
 def is_within(candidate: Path, root: Path) -> bool:

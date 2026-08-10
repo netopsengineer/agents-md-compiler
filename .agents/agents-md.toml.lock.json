@@ -1,0 +1,13 @@
+{
+  "bundle_id": "agents-md-compiler-project",
+  "format_version": 2,
+  "manifest_sha256": "f085b2143784c5d559a08c683522f0f41591bc91bd98ff7c4f2472fdd33c4f16",
+  "modules": [
+    {
+      "id": "project-contract",
+      "sha256": "b69014e59562c9267e1cb059f5259b76c431b5e9d6c81fab9e28c0692294da82",
+      "size_bytes": 15348,
+      "source": "modules/project-contract.md"
+    }
+  ]
+}

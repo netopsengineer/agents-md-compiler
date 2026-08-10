@@ -43,9 +43,7 @@ from agents_md_compiler.errors import (
 from agents_md_compiler.hashing import sha256_file
 from agents_md_compiler.installation import (
     format_file_stamp,
-    install_bundle,
     plan_install,
-    rollback_install,
 )
 from agents_md_compiler.locking import lock_path_for
 from agents_md_compiler.models import (
@@ -54,13 +52,13 @@ from agents_md_compiler.models import (
     InstallOutcome,
     InstallReceipt,
     PathPair,
+    RollbackOutcome,
     TargetInspection,
     TargetKind,
 )
 from agents_md_compiler.receipts import (
     BACKUPS_DIRNAME,
     LAST_INSTALLED_FILENAME,
-    LOCKS_DIRNAME,
     PRESERVED_DIRNAME,
     RECEIPTS_DIRNAME,
     load_install_receipt,
@@ -72,7 +70,7 @@ FAILED_INSTALL_BYTES = b"failed install bytes\n"
 
 
 def state_dir_of(bundle: Bundle) -> Path:
-    """Locate the disposable per-bundle state directory.
+    """Locate the disposable deployment state directory.
 
     Args:
         bundle: The bundle.
@@ -81,6 +79,54 @@ def state_dir_of(bundle: Bundle) -> Path:
         The state directory path.
     """
     return bundle.state_root / "test-bundle"
+
+
+def lock_dir_for(state_dir: Path) -> Path:
+    """Locate the shared disposable lock directory for a state directory.
+
+    Args:
+        state_dir: Disposable deployment state directory.
+
+    Returns:
+        Shared sibling lock directory.
+    """
+    return state_dir.parent / "shared-locks"
+
+
+def install_bundle(
+    compiled: Any,
+    *,
+    lock: PathPair,
+    target: Path,
+    state_dir: Path,
+    **options: Any,
+) -> InstallOutcome:
+    """Call the library installer with the disposable shared lock root."""
+    return installation.install_bundle(
+        compiled,
+        lock=lock,
+        target=target,
+        state_dir=state_dir,
+        lock_dir=lock_dir_for(state_dir),
+        **options,
+    )
+
+
+def rollback_install(
+    receipt: InstallReceipt,
+    *,
+    target: Path,
+    state_dir: Path,
+    **options: Any,
+) -> RollbackOutcome:
+    """Call the library rollback with the disposable shared lock root."""
+    return installation.rollback_install(
+        receipt,
+        target=target,
+        state_dir=state_dir,
+        lock_dir=lock_dir_for(state_dir),
+        **options,
+    )
 
 
 def install(
@@ -351,12 +397,34 @@ def test_an_expected_digest_also_guards_a_managed_target(locked_bundle: Bundle) 
 def test_a_future_format_target_is_refused_as_unmanaged(locked_bundle: Bundle) -> None:
     write_text_file(
         locked_bundle.target,
-        "# Global Agent Instructions\n\n"
-        "<!-- agents-md-compiler:generated format=99 -->\n",
+        "# Agent Instructions\n\n<!-- agents-md-compiler:generated format=99 -->\n",
     )
     with pytest.raises(UnmanagedTargetError) as raised:
         install(locked_bundle, apply=True)
     assert "unrecognized generated format" in str(raised.value)
+
+
+def test_a_format_1_target_upgrades_without_unmanaged_adoption(
+    locked_bundle: Bundle,
+) -> None:
+    current = compiled_of(locked_bundle, target=locked_bundle.target).rendered.data
+    legacy = current.replace(
+        b"# Agent Instructions", b"# Global Agent Instructions", 1
+    ).replace(b"generated format=2", b"generated format=1", 1)
+    locked_bundle.target.write_bytes(legacy)
+    outcome = install(locked_bundle, apply=True)
+    assert outcome.backup is not None
+    assert outcome.backup.path.read_bytes() == legacy
+    assert locked_bundle.target.read_bytes() == current
+    rollback_install(
+        loaded_receipt(locked_bundle),
+        target=locked_bundle.target,
+        state_dir=state_dir_of(locked_bundle),
+        apply=True,
+        clock=fixed_clock,
+        operation_id_factory=lambda: "a" * 32,
+    )
+    assert locked_bundle.target.read_bytes() == legacy
 
 
 def test_a_symlinked_target_is_refused(locked_bundle: Bundle, tmp_path: Path) -> None:
@@ -1072,7 +1140,7 @@ def test_state_directories_are_owner_only(locked_bundle: Bundle) -> None:
 
 
 def test_a_lock_timeout_is_reported(locked_bundle: Bundle) -> None:
-    locks = state_dir_of(locked_bundle) / LOCKS_DIRNAME
+    locks = lock_dir_for(state_dir_of(locked_bundle))
     locks.mkdir(parents=True)
     held = lock_path_for(locked_bundle.target, lock_dir=locks)
     held.write_text(json.dumps({"pid": 99, "acquired_at": "held"}), encoding="utf-8")
@@ -1434,7 +1502,7 @@ def test_the_rollback_operation_id_defaults_to_a_real_value(
 def test_a_rollback_lock_timeout_is_reported(locked_bundle: Bundle) -> None:
     install(locked_bundle, apply=True)
     receipt = loaded_receipt(locked_bundle)
-    locks = state_dir_of(locked_bundle) / LOCKS_DIRNAME
+    locks = lock_dir_for(state_dir_of(locked_bundle))
     held = lock_path_for(locked_bundle.target, lock_dir=locks)
     held.write_text(json.dumps({"pid": 5, "acquired_at": "held"}), encoding="utf-8")
     with pytest.raises(MutationError) as raised:

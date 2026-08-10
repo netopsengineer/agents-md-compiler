@@ -1,6 +1,6 @@
 # Rendered bundle format version 1
 
-Frozen public contract. Rendered output is byte-exact. A change to any byte
+Frozen legacy contract. Rendered output is byte-exact. A change to any byte
 described here is a format change and requires a new `format` value, updated
 documentation, explicit golden-diff review, migration and rollback analysis, a
 release note, and full integration plus active prompt verification. Never
@@ -196,6 +196,11 @@ not something this version may claim to own or safely overwrite.
 
 ## Format history
 
-| Format | Status  | Notes                    |
-|--------|---------|--------------------------|
-| `1`    | current | Initial published format |
+| Format | Status         | Notes                    |
+|--------|----------------|--------------------------|
+| `1`    | legacy managed | Initial published format |
+
+Current releases emit format 2 as specified in `docs/rendered-format-v2.md`.
+They continue to recognize exact format-1 targets as managed so an explicit
+install can back them up, upgrade them, and roll them back without unmanaged-file
+adoption flags.

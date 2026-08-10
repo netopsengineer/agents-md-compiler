@@ -445,8 +445,34 @@ def test_declared_format_reads_a_header_when_utf8_crosses_the_probe_boundary(
 
 
 def test_declared_format_reads_a_future_version() -> None:
-    data = b"# Global Agent Instructions\n\n<!-- agents-md-compiler:generated format=7 -->\n"
+    data = b"# Agent Instructions\n\n<!-- agents-md-compiler:generated format=7 -->\n"
     assert rendering.declared_format(data) == 7
+
+
+def test_declared_format_reads_a_legacy_header() -> None:
+    data = (
+        b"# Global Agent Instructions\n\n"
+        b"<!-- agents-md-compiler:generated format=1 -->\n"
+    )
+    assert rendering.declared_format(data) == 1
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            b"# Agent Instructions\n\n<!-- agents-md-compiler:generated format=1 -->\n",
+            id="legacy-format-with-neutral-title",
+        ),
+        pytest.param(
+            b"# Global Agent Instructions\n\n"
+            b"<!-- agents-md-compiler:generated format=2 -->\n",
+            id="current-format-with-legacy-title",
+        ),
+    ],
+)
+def test_declared_format_rejects_a_title_version_mismatch(payload: bytes) -> None:
+    assert rendering.declared_format(payload) is None
 
 
 @pytest.mark.parametrize(

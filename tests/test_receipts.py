@@ -39,7 +39,7 @@ def place(
     """Write a receipt document into a disposable state root.
 
     Args:
-        state_root: Per-bundle state root.
+        state_root: Accepted state root.
         document: Receipt document.
         name: Receipt file name.
 
@@ -57,7 +57,7 @@ def load(state_root: Path, path: Path) -> InstallReceipt:
     """Load a receipt with the fixture's bundle and target.
 
     Args:
-        state_root: Per-bundle state root.
+        state_root: Accepted state root.
         path: Receipt path.
 
     Returns:
@@ -72,7 +72,7 @@ def prepare_backup(state_root: Path, document: dict[str, Any]) -> None:
     """Point the document's backup at a real file inside the state root.
 
     Args:
-        state_root: Per-bundle state root.
+        state_root: Accepted state root.
         document: Receipt document to adjust in place.
     """
     backups = state_root / receipts.BACKUPS_DIRNAME

@@ -5,11 +5,11 @@ bytes plus an explicit target precondition, and it refuses rather than guesses.
 
 Order of operations for an install, and every step is load-bearing:
 
-1. Refuse a non-empty global override, which would make the installed file invisible.
+1. Refuse a non-empty sibling override, which would make the file invisible.
 2. Inspect the target without following a link, and capture its digest.
 3. Require explicit adoption for a target this tool did not generate.
 4. Compute the complete plan. A dry run stops here having created nothing at all.
-5. Create state directories, then take a per-target advisory lock.
+5. Create deployment and shared-lock directories, then take a per-target lock.
 6. Recapture the target under the lock and refuse any change since step 2.
 7. Back up the prior bytes immutably.
 8. Write the new bytes atomically, preserving an existing permission mode.
@@ -68,7 +68,6 @@ from agents_md_compiler.receipts import (
     BACKUPS_DIRNAME,
     INSTALL_OPERATION,
     LAST_INSTALLED_FILENAME,
-    LOCKS_DIRNAME,
     PRESERVED_DIRNAME,
     RECEIPTS_DIRNAME,
     ROLLBACK_OPERATION,
@@ -366,7 +365,7 @@ def _recover_failed_install(
         backup: Immutable backup for an existing predecessor.
         target: Resolved installation target.
         target_lexical: Target path as supplied.
-        state_dir: Per-bundle state directory.
+        state_dir: Target-qualified deployment state directory.
         installed_sha256: Digest of the bytes this install wrote.
         stamp: Operation timestamp used for evidence names.
         operation_id: Operation identifier used for evidence names.
@@ -506,7 +505,7 @@ def plan_install(
 ) -> tuple[InstallPlan, TargetInspection]:
     """Compute what an install would do, without creating anything.
 
-    Propagated failures: :class:`ShadowedError` when a non-empty global override
+    Propagated failures: :class:`ShadowedError` when a non-empty sibling override
     would shadow the target, :class:`UnmanagedTargetError` when the adoption rules
     are not satisfied, and :class:`TargetError` for an unusable target path.
 
@@ -514,7 +513,7 @@ def plan_install(
         compiled: The compiled bundle to install.
         target: Resolved target path.
         target_lexical: Target path as supplied.
-        state_dir: Per-bundle state directory.
+        state_dir: Target-qualified deployment state directory.
         replace_unmanaged: Whether replacing an unmanaged target is authorized.
         expect_target_sha256: Digest captured immediately before this call.
 
@@ -552,6 +551,7 @@ def install_bundle(
     lock: PathPair,
     target: Path,
     state_dir: Path,
+    lock_dir: Path,
     target_lexical: str | None = None,
     apply: bool = False,
     replace_unmanaged: bool = False,
@@ -573,7 +573,9 @@ def install_bundle(
         compiled: The compiled bundle to install.
         lock: Lock path pair used to compile the bundle.
         target: Resolved target path.
-        state_dir: Per-bundle state directory.
+        state_dir: Target-qualified deployment state directory.
+        lock_dir: Required distribution-wide advisory-lock directory. Callers
+            must share it across bundles that can select the same target.
         target_lexical: Target path as supplied.
         apply: Perform the mutation. Without it nothing is created.
         replace_unmanaged: Authorize replacing a target with no generated header.
@@ -618,15 +620,15 @@ def install_bundle(
         RECEIPTS_DIRNAME,
         BACKUPS_DIRNAME,
         PRESERVED_DIRNAME,
-        LOCKS_DIRNAME,
     ):
         create_state_directory(state_dir / name, mode=STATE_DIR_MODE)
+    create_state_directory(lock_dir, mode=STATE_DIR_MODE)
     timeout = (
         DEFAULT_TIMEOUT_SECONDS
         if lock_timeout_seconds is None
         else lock_timeout_seconds
     )
-    lock_file = lock_path_for(target, lock_dir=state_dir / LOCKS_DIRNAME)
+    lock_file = lock_path_for(target, lock_dir=lock_dir)
     with advisory_lock(lock_file, timeout_seconds=timeout):
         after = _refuse_if_changed(before, target, lexical=target_lexical)
         moment = clock()
@@ -725,7 +727,7 @@ def _record_last_installed(
     """Record the digest of the most recent successful install.
 
     Args:
-        state_dir: Per-bundle state directory.
+        state_dir: Target-qualified deployment state directory.
         installed: Bytes that were written.
         receipt_path: Receipt describing the install.
         completed_at: UTC completion time.
@@ -746,6 +748,7 @@ def rollback_install(
     *,
     target: Path,
     state_dir: Path,
+    lock_dir: Path,
     target_lexical: str | None = None,
     apply: bool = False,
     clock: Clock = _default_clock,
@@ -761,7 +764,9 @@ def rollback_install(
     Args:
         receipt: A receipt already validated for this invocation.
         target: Resolved target path.
-        state_dir: Per-bundle state directory.
+        state_dir: Target-qualified deployment state directory.
+        lock_dir: Required distribution-wide advisory-lock directory. Callers
+            must share it across bundles that can select the same target.
         target_lexical: Target path as supplied.
         apply: Perform the mutation. Without it nothing is changed.
         clock: Injectable wall clock.
@@ -802,14 +807,15 @@ def rollback_install(
             completed_at=None,
         )
 
-    for name in (RECEIPTS_DIRNAME, PRESERVED_DIRNAME, LOCKS_DIRNAME):
+    for name in (RECEIPTS_DIRNAME, PRESERVED_DIRNAME):
         create_state_directory(state_dir / name, mode=STATE_DIR_MODE)
+    create_state_directory(lock_dir, mode=STATE_DIR_MODE)
     timeout = (
         DEFAULT_TIMEOUT_SECONDS
         if lock_timeout_seconds is None
         else lock_timeout_seconds
     )
-    lock_file = lock_path_for(target, lock_dir=state_dir / LOCKS_DIRNAME)
+    lock_file = lock_path_for(target, lock_dir=lock_dir)
     with advisory_lock(lock_file, timeout_seconds=timeout):
         under_lock = _refuse_if_changed(current, target, lexical=target_lexical)
         moment = clock()
@@ -892,7 +898,7 @@ def _restore(
     Args:
         receipt: The install receipt being rolled back.
         target: Resolved target path.
-        state_dir: Per-bundle state directory.
+        state_dir: Target-qualified deployment state directory.
         stamp: Compact UTC stamp for a preserved file name.
 
     Returns:

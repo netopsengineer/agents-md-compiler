@@ -15,6 +15,7 @@ reaches for when overriding a shell alias or wrapper script.
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -23,11 +24,15 @@ from typing import Any
 from agents_md_compiler._version import distribution_version
 from agents_md_compiler.atomic import atomic_write, create_state_directory
 from agents_md_compiler.codex import (
+    CODEX_HOME_ENV,
     DEFAULT_TIMEOUT_SECONDS,
     RuntimeVerification,
+    VerificationContext,
+    active_codex_home,
     content_sentinels,
     required_markers,
     unverified,
+    verification_context_for_target,
     verify_rendered_visibility,
 )
 from agents_md_compiler.errors import (
@@ -44,6 +49,7 @@ from agents_md_compiler.lockfile import read_lock_bytes
 from agents_md_compiler.locking import advisory_lock, lock_path_for
 from agents_md_compiler.manifest import load_manifest
 from agents_md_compiler.models import (
+    AGENTS_FILENAME,
     IDENTIFIER_PATTERN,
     JSON_SCHEMA_VERSION,
     NEW_TARGET_MODE,
@@ -58,10 +64,12 @@ from agents_md_compiler.models import (
 from agents_md_compiler.paths import (
     bundle_state_dir,
     default_lock_path,
+    deployment_state_dir,
+    is_within,
     resolve_from_cwd,
+    shared_lock_dir,
 )
 from agents_md_compiler.receipts import (
-    LOCKS_DIRNAME,
     list_backups,
     list_receipts,
     load_install_receipt,
@@ -71,8 +79,11 @@ from agents_md_compiler.state import compile_bundle, evaluate, require_target_pa
 PROGRAM_NAME = "agents-md-compiler"
 """Console command name, also used in diagnostics."""
 
-DEFAULT_MANIFEST_NAME = "global-agents.toml"
+DEFAULT_MANIFEST_NAME = "agents-md.toml"
 """Manifest name assumed when ``--manifest`` is omitted."""
+
+LEGACY_DEFAULT_MANIFEST_NAME = "global-agents.toml"
+"""Legacy default used only when the neutral default is absent."""
 
 OPTION_BUNDLE_ID = "--bundle-id"
 OPTION_EXPECT_DIGEST = "--expect-target-sha256"
@@ -112,12 +123,12 @@ STATE_EXIT_CODES: dict[BundleState, int] = {
 """The exhaustive state-to-exit-code mapping documented in docs/cli-contract.md."""
 
 SCAFFOLD_MANIFEST = """\
-# Example bundle manifest. Module order is output order and every module is
+# Bundle manifest. Module order is output order and every module is
 # mandatory. Sources resolve against this file's directory, never the process
-# working directory. Run `agents-md-compiler lock` after editing this file.
+# working directory. Run the exact lock command printed by `init` next.
 schema_version = 1
 bundle_id = "{bundle_id}"
-default_target = "~/.codex/AGENTS.md"
+default_target = {default_target}
 
 [[modules]]
 id = "core"
@@ -212,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog=PROGRAM_NAME,
         description=(
             "Compile ordered Markdown policy modules into one deterministic "
-            "global AGENTS.md, then check, install, roll back, and verify it."
+            "AGENTS.md, then check, install, roll back, and verify it."
         ),
     )
     parser.add_argument(
@@ -250,8 +261,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     initializer.add_argument(
         OPTION_BUNDLE_ID,
-        default="example-global",
+        default="example-bundle",
         help="bundle identifier for the scaffolded manifest",
+    )
+    initializer.add_argument(
+        "--target",
+        default=None,
+        help="target recorded in the manifest; defaults to the active Codex home AGENTS.md",
     )
 
     locker = subcommands.add_parser(
@@ -357,6 +373,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_TIMEOUT_SECONDS,
         help="prompt-input deadline in seconds; capability checks use 60",
     )
+    verifier.add_argument(
+        "--cwd",
+        default=None,
+        help="Codex startup directory; project targets default to target parent",
+    )
 
     subcommands.add_parser(
         "version",
@@ -448,11 +469,26 @@ def _manifest_path(args: argparse.Namespace) -> Path:
 
     Returns:
         The resolved manifest path.
+
+    Raises:
+        UsageError: Both neutral and legacy default manifests exist.
     """
     supplied: str | None = args.manifest
-    if supplied is None:
-        return resolve_from_cwd(DEFAULT_MANIFEST_NAME)
-    return resolve_from_cwd(supplied)
+    if supplied is not None:
+        return resolve_from_cwd(supplied)
+    current = resolve_from_cwd(DEFAULT_MANIFEST_NAME)
+    legacy = resolve_from_cwd(LEGACY_DEFAULT_MANIFEST_NAME)
+    current_present = current.exists() or current.is_symlink()
+    legacy_present = legacy.exists() or legacy.is_symlink()
+    if current_present and legacy_present:
+        detail = (
+            f"both {DEFAULT_MANIFEST_NAME!r} and "
+            f"{LEGACY_DEFAULT_MANIFEST_NAME!r} exist; use --manifest"
+        )
+        raise UsageError(detail)
+    if legacy_present:
+        return legacy
+    return current
 
 
 def _lock_paths(args: argparse.Namespace, manifest: Path) -> tuple[Path, str]:
@@ -613,6 +649,39 @@ def _run_version(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _scaffold_target(raw_target: str, *, directory: Path) -> tuple[Path, str]:
+    """Resolve and serialize a target for a scaffold manifest.
+
+    Args:
+        raw_target: Target text supplied to ``init``.
+        directory: Resolved scaffold directory.
+
+    Returns:
+        The resolved target and portable manifest value.
+    """
+    target = resolve_from_cwd(raw_target)
+    if raw_target.startswith("~"):
+        return target, raw_target
+    if Path(raw_target).is_absolute():
+        return target, str(target)
+    return target, os.path.relpath(target, directory)
+
+
+def _default_scaffold_target() -> str:
+    """Select the active global base target for ``init``.
+
+    Preserve the portable tilde form for the ordinary default. When ``CODEX_HOME``
+    is explicit, honor it exactly as Codex does and serialize its normalized
+    absolute base target.
+
+    Returns:
+        Target text to resolve and write into the scaffold manifest.
+    """
+    if os.environ.get(CODEX_HOME_ENV, ""):
+        return str(active_codex_home() / AGENTS_FILENAME)
+    return "~/.codex/AGENTS.md"
+
+
 def _run_init(args: argparse.Namespace) -> int:
     """Scaffold an example manifest and modules.
 
@@ -631,9 +700,20 @@ def _run_init(args: argparse.Namespace) -> int:
         problem = f"{OPTION_BUNDLE_ID} {bundle_id!r} must match [a-z][a-z0-9-]{{0,63}}"
         raise UsageError(problem)
     directory = resolve_from_cwd(args.directory)
+    supplied_target: str | None = args.target
+    raw_target = (
+        _default_scaffold_target() if supplied_target is None else supplied_target
+    )
+    if not raw_target.strip():
+        problem = "--target must not be empty or whitespace only"
+        raise UsageError(problem)
+    target, manifest_target = _scaffold_target(raw_target, directory=directory)
+    manifest_path = directory / DEFAULT_MANIFEST_NAME
+    next_command = (PROGRAM_NAME, "lock", "--manifest", str(manifest_path))
     planned = {
-        directory / DEFAULT_MANIFEST_NAME: SCAFFOLD_MANIFEST.format(
-            bundle_id=bundle_id
+        manifest_path: SCAFFOLD_MANIFEST.format(
+            bundle_id=bundle_id,
+            default_target=json.dumps(manifest_target, ensure_ascii=True),
         ),
         directory / "modules" / "core.md": SCAFFOLD_CORE,
         directory / "modules" / "python.md": SCAFFOLD_PYTHON,
@@ -650,11 +730,17 @@ def _run_init(args: argparse.Namespace) -> int:
         payload = _envelope("init", None, ok=True)
         payload["directory"] = str(directory)
         payload["created"] = created
+        payload["target_path"] = str(target)
+        payload["next_command"] = list(next_command)
         emit_json(payload)
     else:
         for path_text in created:
             sys.stdout.write(path_text + "\n")
-    _note(args, f"{PROGRAM_NAME}: scaffolded {len(created)} files; run 'lock' next")
+    _note(
+        args,
+        f"{PROGRAM_NAME}: scaffolded {len(created)} files; run "
+        + " ".join(next_command),
+    )
     return EXIT_OK
 
 
@@ -700,9 +786,9 @@ def _run_lock(args: argparse.Namespace) -> int:
         )
         _note(args, f"{PROGRAM_NAME}: lock already current")
         return EXIT_OK
-    state_dir = bundle_state_dir(manifest.bundle_id)
-    create_state_directory(state_dir / LOCKS_DIRNAME, mode=STATE_DIR_MODE)
-    lock_guard = lock_path_for(lock_path, lock_dir=state_dir / LOCKS_DIRNAME)
+    lock_dir = shared_lock_dir()
+    create_state_directory(lock_dir, mode=STATE_DIR_MODE)
+    lock_guard = lock_path_for(lock_path, lock_dir=lock_dir)
     with advisory_lock(lock_guard):
         recheck: bytes | None
         try:
@@ -899,7 +985,7 @@ def _run_status(args: argparse.Namespace) -> int:
         The exit code for the reported state.
     """
     status, lock_path, target = _evaluate(args)
-    state_dir = bundle_state_dir(status.compiled.manifest.bundle_id)
+    state_dir = deployment_state_dir(status.compiled.manifest.bundle_id, target)
     receipts = list_receipts(state_dir)
     extra: dict[str, Any] = {
         "override_path": None
@@ -963,7 +1049,8 @@ def _run_install(args: argparse.Namespace) -> int:
         compiled,
         lock=PathPair(lexical=lock_lexical, resolved=str(lock_path)),
         target=target,
-        state_dir=bundle_state_dir(manifest.bundle_id),
+        state_dir=deployment_state_dir(manifest.bundle_id, target),
+        lock_dir=shared_lock_dir(),
         target_lexical=target_lexical,
         apply=args.apply,
         replace_unmanaged=args.replace_unmanaged,
@@ -1016,11 +1103,19 @@ def _run_rollback(args: argparse.Namespace) -> int:
         manifest_path, lexical_path=args.manifest or str(manifest_path)
     )
     target, target_lexical = _target_paths(args, manifest)
-    state_dir = bundle_state_dir(manifest.bundle_id)
+    state_dir = deployment_state_dir(manifest.bundle_id, target)
+    legacy_state_dir = bundle_state_dir(manifest.bundle_id)
     receipt_lexical: str = args.receipt
+    receipt_path = resolve_from_cwd(receipt_lexical)
+    receipt_state_dir = (
+        legacy_state_dir
+        if is_within(receipt_path, legacy_state_dir)
+        and not is_within(receipt_path, state_dir)
+        else state_dir
+    )
     receipt = load_install_receipt(
-        resolve_from_cwd(receipt_lexical),
-        state_root=state_dir,
+        receipt_path,
+        state_root=receipt_state_dir,
         bundle_id=manifest.bundle_id,
         target=target,
         lexical=receipt_lexical,
@@ -1029,6 +1124,7 @@ def _run_rollback(args: argparse.Namespace) -> int:
         receipt,
         target=target,
         state_dir=state_dir,
+        lock_dir=shared_lock_dir(),
         target_lexical=target_lexical,
         apply=args.apply,
     )
@@ -1072,8 +1168,27 @@ def _run_verify_codex(args: argparse.Namespace) -> int:
         ``EXIT_OK`` when every check passed, otherwise the code for the reported
         state. ``RUNTIME_UNVERIFIED`` exits 1 because verification was requested
         and did not succeed.
+
+    Raises:
+        UsageError: A working directory was supplied for the active global target,
+            or a project working directory falls outside the target's discovery
+            chain.
     """
     status, lock_path, target = _evaluate(args)
+    context = verification_context_for_target(target)
+    supplied_cwd: str | None = args.cwd
+    if context is VerificationContext.GLOBAL:
+        if supplied_cwd is not None:
+            problem = "--cwd cannot be used with the active global target"
+            raise UsageError(problem)
+        probe_cwd = None
+    else:
+        probe_cwd = (
+            target.parent if supplied_cwd is None else resolve_from_cwd(supplied_cwd)
+        )
+        if not is_within(probe_cwd, target.parent):
+            problem = f"--cwd must be {target.parent} or one of its descendants"
+            raise UsageError(problem)
     if status.state is not BundleState.CURRENT:
         # Never report CURRENT for a run whose runtime verification did not happen.
         return _report_state(
@@ -1082,16 +1197,25 @@ def _run_verify_codex(args: argparse.Namespace) -> int:
             status,
             lock_path,
             target,
-            {"capability_present": False, "failure": "static state is not CURRENT"},
+            {
+                "capability_present": False,
+                "failure": "static state is not CURRENT",
+                "probe_cwd": None if probe_cwd is None else str(probe_cwd),
+                "verification_context": context.value,
+            },
         )
     rendered = status.compiled.rendered
     try:
-        result = verify_rendered_visibility(rendered, timeout_seconds=args.timeout)
+        result = verify_rendered_visibility(
+            rendered, cwd=probe_cwd, timeout_seconds=args.timeout
+        )
     except CodexVerificationError as error:
         result = unverified(
             error,
             markers_expected=len(required_markers(rendered.modules)),
             sentinels_expected=len(content_sentinels(rendered)),
+            probe_cwd=probe_cwd,
+            verification_context=context,
         )
     code = STATE_EXIT_CODES[result.state]
     if resolve_format(args) == FORMAT_JSON:
@@ -1134,6 +1258,8 @@ def _verification_payload(result: RuntimeVerification) -> dict[str, Any]:
         "sentinels_expected": result.sentinels_expected,
         "sentinels_found": result.sentinels_found,
         "probe_command": list(result.probe_command),
+        "probe_cwd": None if result.probe_cwd is None else str(result.probe_cwd),
+        "verification_context": result.verification_context.value,
         "failure": result.failure,
     }
 

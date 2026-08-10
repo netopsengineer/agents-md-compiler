@@ -149,17 +149,28 @@ def _decoded_toml(path: Path) -> dict[str, Any]:
 
 
 def _golden_lock() -> dict[str, Any]:
-    """Decode the golden lock template with a fixed placeholder substitution.
+    """Decode the current golden lock template.
 
     Returns:
         The decoded lock document.
     """
-    template = (FIXTURES / "golden" / "minimal.lock.json.tmpl").read_text(
-        encoding="utf-8"
-    )
     decoded: dict[str, Any] = json.loads(
-        template.replace("__SOURCE_DIR__", "/example/modules")
+        (FIXTURES / "golden" / "minimal.lock.json.tmpl").read_text(encoding="utf-8")
     )
+    return decoded
+
+
+def _legacy_lock() -> dict[str, Any]:
+    """Build a valid format-1 lock from the current golden identity.
+
+    Returns:
+        A decoded legacy lock document.
+    """
+    decoded = _golden_lock()
+    decoded["format_version"] = 1
+    for module in decoded["modules"]:
+        source = module.pop("source")
+        module["resolved_source"] = f"/example/{source}"
     return decoded
 
 
@@ -180,7 +191,12 @@ def _receipt(name: str) -> dict[str, Any]:
 
 @pytest.mark.parametrize(
     "schema_name",
-    ["manifest-v1.schema.json", "lock-v1.schema.json", "receipt-v1.schema.json"],
+    [
+        "manifest-v1.schema.json",
+        "lock-v1.schema.json",
+        "lock-v2.schema.json",
+        "receipt-v1.schema.json",
+    ],
 )
 def test_every_shipped_schema_is_a_valid_draft_2020_12_schema(schema_name: str) -> None:
     schema = _check_schema(schema_name)
@@ -191,6 +207,7 @@ def test_every_shipped_schema_is_a_valid_draft_2020_12_schema(schema_name: str) 
 def test_schema_directory_holds_exactly_the_documented_schemas() -> None:
     assert sorted(p.name for p in SCHEMA_DIR.glob("*.json")) == [
         "lock-v1.schema.json",
+        "lock-v2.schema.json",
         "manifest-v1.schema.json",
         "receipt-v1.schema.json",
     ]
@@ -222,7 +239,11 @@ def test_every_invalid_fixture_is_syntactically_valid_toml() -> None:
 
 
 def test_lock_schema_accepts_the_golden_lock() -> None:
-    _assert_valid("lock-v1.schema.json", _golden_lock())
+    _assert_valid("lock-v2.schema.json", _golden_lock())
+
+
+def test_legacy_lock_schema_accepts_a_format_1_lock() -> None:
+    _assert_valid("lock-v1.schema.json", _legacy_lock())
 
 
 def test_lock_schema_accepts_the_committed_example_lock() -> None:
@@ -231,7 +252,7 @@ def test_lock_schema_accepts_the_committed_example_lock() -> None:
             encoding="utf-8"
         )
     )
-    _assert_valid("lock-v1.schema.json", decoded)
+    _assert_valid("lock-v2.schema.json", decoded)
 
 
 LOCK_DAMAGE = [
@@ -239,7 +260,7 @@ LOCK_DAMAGE = [
     Mutation("missing-format-version", "format_version", delete=True),
     Mutation("missing-manifest-digest", "manifest_sha256", delete=True),
     Mutation("missing-modules", "modules", delete=True),
-    Mutation("unsupported-format-version", "format_version", value=2),
+    Mutation("unsupported-format-version", "format_version", value=3),
     Mutation("string-format-version", "format_version", value="1"),
     Mutation("unknown-top-level-key", "strict", value=True),
     Mutation("empty-modules", "modules", value=[]),
@@ -250,10 +271,8 @@ LOCK_DAMAGE = [
     Mutation("zero-size", "size_bytes", path=("modules", 0), value=0),
     Mutation("float-size", "size_bytes", path=("modules", 0), value=1.5),
     Mutation("non-hex-digest", "sha256", path=("modules", 0), value="z" * 64),
-    Mutation(
-        "missing-resolved-source", "resolved_source", path=("modules", 0), delete=True
-    ),
-    Mutation("empty-resolved-source", "resolved_source", path=("modules", 0), value=""),
+    Mutation("missing-source", "source", path=("modules", 0), delete=True),
+    Mutation("empty-source", "source", path=("modules", 0), value=""),
     Mutation("unknown-module-key", "unexpected", path=("modules", 0), value=1),
     Mutation("bad-module-id", "id", path=("modules", 0), value="Core"),
 ]
@@ -263,7 +282,7 @@ LOCK_DAMAGE = [
 def test_lock_schema_rejects_structural_damage(mutation: Mutation) -> None:
     lock = _golden_lock()
     _apply(lock, mutation)
-    assert _is_valid("lock-v1.schema.json", lock) is False
+    assert _is_valid("lock-v2.schema.json", lock) is False
 
 
 @pytest.mark.parametrize("receipt_name", ["install-valid.json", "rollback-valid.json"])

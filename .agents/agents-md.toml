@@ -1,0 +1,7 @@
+schema_version = 1
+bundle_id = "agents-md-compiler-project"
+default_target = "../AGENTS.md"
+
+[[modules]]
+id = "project-contract"
+source = "modules/project-contract.md"

@@ -431,5 +431,7 @@ docs/*
 !docs/dependency-verification.md
 !docs/manifest-v1.md
 !docs/rendered-format-v1.md
+!docs/rendered-format-v2.md
 !docs/cli-contract.md
 !docs/security-model.md
+!docs/target-agnostic-agents-md-execution-plan.md

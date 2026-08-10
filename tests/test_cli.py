@@ -24,8 +24,20 @@ from conftest import (
 from agents_md_compiler import cli
 from agents_md_compiler.hashing import sha256_file
 from agents_md_compiler.models import DISTRIBUTION_DIRECTORY, BundleState
+from agents_md_compiler.paths import deployment_state_dir
 
 UNMANAGED_TEXT = "# Hand written policy\n\nBody that must be preserved.\n"
+
+
+@pytest.fixture(autouse=True)
+def isolate_user_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every CLI test independent of the operator's home and Codex home."""
+    fake_home = tmp_path / "process-home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
 
 
 @pytest.fixture
@@ -48,7 +60,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Bundle:
 
 
 def state_dir(bundle: Bundle, tmp_path: Path) -> Path:
-    """Locate the isolated per-bundle state directory.
+    """Locate the isolated target-qualified deployment directory.
 
     Args:
         bundle: The bundle.
@@ -57,7 +69,8 @@ def state_dir(bundle: Bundle, tmp_path: Path) -> Path:
     Returns:
         The state directory path.
     """
-    return tmp_path / "xdg" / DISTRIBUTION_DIRECTORY / "test-bundle"
+    state_root = tmp_path / "xdg" / DISTRIBUTION_DIRECTORY
+    return deployment_state_dir("test-bundle", bundle.target, state_root=state_root)
 
 
 def run(*argv: str) -> int:
@@ -219,15 +232,15 @@ def test_init_scaffolds_a_working_bundle(
         cli.EXIT_OK
     )
     capsys.readouterr()
-    assert (tmp_path / "policy" / "global-agents.toml").is_file()
+    assert (tmp_path / "policy" / "agents-md.toml").is_file()
     assert 'default_target = "~/.codex/AGENTS.md"' in (
-        tmp_path / "policy" / "global-agents.toml"
+        tmp_path / "policy" / "agents-md.toml"
     ).read_text(encoding="utf-8")
     assert (tmp_path / "policy" / "modules" / "core.md").is_file()
     assert (tmp_path / "policy" / "modules" / "python.md").is_file()
-    assert run("lock", "--manifest", "policy/global-agents.toml") == cli.EXIT_OK
+    assert run("lock", "--manifest", "policy/agents-md.toml") == cli.EXIT_OK
     capsys.readouterr()
-    assert run("validate", "--manifest", "policy/global-agents.toml") == cli.EXIT_OK
+    assert run("validate", "--manifest", "policy/agents-md.toml") == cli.EXIT_OK
 
 
 def test_init_json_lists_what_it_created(
@@ -239,17 +252,55 @@ def test_init_json_lists_what_it_created(
     assert payload["state"] is None
     assert len(payload["created"]) == 3
     assert payload["directory"].endswith("policy")
+    assert payload["target_path"].endswith(".codex/AGENTS.md")
+    assert payload["next_command"][1:3] == ["lock", "--manifest"]
+
+
+def test_init_serializes_a_relative_target_from_the_scaffold_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert (
+        run("init", "--directory", "policy", "--target", "repo/AGENTS.md")
+        == cli.EXIT_OK
+    )
+    capsys.readouterr()
+    manifest = (tmp_path / "policy" / "agents-md.toml").read_text(encoding="utf-8")
+    assert 'default_target = "../repo/AGENTS.md"' in manifest
+
+
+def test_init_preserves_an_absolute_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "repo" / "AGENTS.md"
+    assert run("init", "--directory", "policy", "--target", str(target)) == cli.EXIT_OK
+    capsys.readouterr()
+    manifest = (tmp_path / "policy" / "agents-md.toml").read_text(encoding="utf-8")
+    assert f'default_target = "{target}"' in manifest
+
+
+def test_init_honors_an_explicit_codex_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    assert run("init", "--directory", "policy") == cli.EXIT_OK
+    capsys.readouterr()
+    manifest = (tmp_path / "policy" / "agents-md.toml").read_text(encoding="utf-8")
+    assert f'default_target = "{codex_home / "AGENTS.md"}"' in manifest
 
 
 def test_init_refuses_an_existing_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    write_text_file(tmp_path / "policy" / "global-agents.toml", "# existing\n")
+    write_text_file(tmp_path / "policy" / "agents-md.toml", "# existing\n")
     assert run("init", "--directory", "policy") == cli.EXIT_ERROR
     captured = capsys.readouterr()
     assert "refusing to write" in captured.err
-    assert (tmp_path / "policy" / "global-agents.toml").read_text(
+    assert (tmp_path / "policy" / "agents-md.toml").read_text(
         encoding="utf-8"
     ) == "# existing\n"
     assert not (tmp_path / "policy" / "modules").exists()
@@ -263,6 +314,15 @@ def test_init_refuses_an_invalid_bundle_id(
         cli.EXIT_ERROR
     )
     assert "must match" in capsys.readouterr().err
+    assert not (tmp_path / "policy").exists()
+
+
+def test_init_refuses_a_blank_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert run("init", "--directory", "policy", "--target", "   ") == cli.EXIT_ERROR
+    assert "must not be empty" in capsys.readouterr().err
     assert not (tmp_path / "policy").exists()
 
 
@@ -305,6 +365,26 @@ def test_lock_check_reports_a_missing_lock(
     assert run("lock", "--check") == cli.EXIT_DIFFERENCE
     assert "LOCK_MISSING" in capsys.readouterr().out
     assert not workspace.lock.exists()
+
+
+def test_lock_explicitly_migrates_a_format_1_lock(
+    workspace: Bundle, capsys: pytest.CaptureFixture[str]
+) -> None:
+    document = json.loads(workspace.lock.read_bytes())
+    document["format_version"] = 1
+    for module in document["modules"]:
+        source = module.pop("source")
+        module["resolved_source"] = str(workspace.root / source)
+    legacy = (
+        json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    ).encode()
+    workspace.lock.write_bytes(legacy)
+    assert run("validate") == cli.EXIT_DIFFERENCE
+    assert "LOCK_STALE" in capsys.readouterr().out
+    assert workspace.lock.read_bytes() == legacy
+    assert run("lock") == cli.EXIT_OK
+    capsys.readouterr()
+    assert json.loads(workspace.lock.read_bytes())["format_version"] == 2
 
 
 def test_lock_refuses_a_concurrent_lockfile_change(
@@ -577,6 +657,24 @@ def test_status_reports_a_shadowing_override(
     assert payload["state"] == "SHADOWED"
     assert payload["override_present"] is True
     assert payload["override_path"].endswith("AGENTS.override.md")
+
+
+def test_status_history_is_scoped_to_the_selected_target(
+    workspace: Bundle, capsys: pytest.CaptureFixture[str]
+) -> None:
+    second = workspace.root / "second" / "AGENTS.md"
+    second.parent.mkdir()
+    assert run("install", "--apply") == cli.EXIT_OK
+    capsys.readouterr()
+    assert run("install", "--target", str(second), "--apply") == cli.EXIT_OK
+    capsys.readouterr()
+    assert run("status", "--format", "json") == cli.EXIT_OK
+    first_status = envelope(capsys.readouterr().out)
+    assert run("status", "--target", str(second), "--format", "json") == cli.EXIT_OK
+    second_status = envelope(capsys.readouterr().out)
+    assert first_status["receipt_count"] == 1
+    assert second_status["receipt_count"] == 1
+    assert first_status["state_root"] != second_status["state_root"]
 
 
 def test_status_counts_backups(
@@ -931,6 +1029,33 @@ def test_a_default_manifest_is_read_from_the_working_directory(
     assert "CURRENT" in capsys.readouterr().out
 
 
+def test_the_neutral_default_manifest_is_preferred_when_present(
+    workspace: Bundle, capsys: pytest.CaptureFixture[str]
+) -> None:
+    neutral = workspace.root / "agents-md.toml"
+    neutral_lock = Path(str(neutral) + ".lock.json")
+    workspace.manifest.replace(neutral)
+    workspace.lock.replace(neutral_lock)
+    assert run("validate") == cli.EXIT_OK
+    assert "CURRENT" in capsys.readouterr().out
+
+
+def test_implicit_manifest_discovery_refuses_ambiguity(
+    workspace: Bundle, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (workspace.root / "agents-md.toml").write_bytes(workspace.manifest.read_bytes())
+    assert run("validate") == cli.EXIT_ERROR
+    assert "both 'agents-md.toml' and 'global-agents.toml'" in capsys.readouterr().err
+
+
+def test_missing_implicit_manifest_names_the_neutral_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert run("validate") == cli.EXIT_ERROR
+    assert "agents-md.toml" in capsys.readouterr().err
+
+
 def test_rollback_apply_in_text_mode_reports_the_state(
     workspace: Bundle, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -940,6 +1065,23 @@ def test_rollback_apply_in_text_mode_reports_the_state(
     captured = capsys.readouterr()
     assert captured.out.strip() == "MISSING"
     assert "dry run" not in captured.err
+
+
+def test_rollback_accepts_a_legacy_bundle_only_receipt(
+    workspace: Bundle, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run("install", "--apply", "--format", "json") == cli.EXIT_OK
+    receipt_path = Path(envelope(capsys.readouterr().out)["receipt_path"])
+    legacy_receipts = (
+        tmp_path / "xdg" / DISTRIBUTION_DIRECTORY / "test-bundle" / "receipts"
+    )
+    legacy_receipts.mkdir(parents=True)
+    legacy_receipt = legacy_receipts / receipt_path.name
+    receipt_path.replace(legacy_receipt)
+    assert run("rollback", "--receipt", str(legacy_receipt), "--apply") == cli.EXIT_OK
+    assert capsys.readouterr().out.strip() == "MISSING"
+    assert not workspace.target.exists()
+    assert len(list((state_dir(workspace, tmp_path) / "receipts").glob("*.json"))) == 1
 
 
 def test_an_error_without_a_path_still_produces_an_envelope(
@@ -993,6 +1135,58 @@ def test_verify_codex_passes_when_the_bundle_is_visible(
     assert payload["sentinels_found"] == payload["sentinels_expected"] == 2
     assert payload["failure"] is None
     assert payload["probe_command"][1:3] == ["debug", "prompt-input"]
+    assert payload["probe_cwd"] == str(workspace.target.parent)
+    assert payload["verification_context"] == "project"
+
+
+def test_verify_codex_accepts_a_descendant_project_cwd(
+    workspace: Bundle,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run("install", "--apply") == cli.EXIT_OK
+    capsys.readouterr()
+    child = workspace.target.parent / "nested"
+    child.mkdir()
+    install_verify_mock(workspace, tmp_path, monkeypatch)
+    assert run("verify-codex", "--cwd", str(child), "--format", "json") == cli.EXIT_OK
+    assert envelope(capsys.readouterr().out)["probe_cwd"] == str(child)
+
+
+def test_verify_codex_refuses_a_project_cwd_outside_the_target_chain(
+    workspace: Bundle,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run("verify-codex", "--cwd", str(tmp_path)) == cli.EXIT_ERROR
+    assert "or one of its descendants" in capsys.readouterr().err
+
+
+def test_verify_codex_refuses_cwd_for_the_active_global_target(
+    workspace: Bundle,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(workspace.target.parent))
+    assert run("verify-codex", "--cwd", str(workspace.target.parent)) == cli.EXIT_ERROR
+    assert "cannot be used with the active global target" in capsys.readouterr().err
+
+
+def test_verify_codex_isolates_the_active_global_target(
+    workspace: Bundle,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run("install", "--apply") == cli.EXIT_OK
+    capsys.readouterr()
+    monkeypatch.setenv("CODEX_HOME", str(workspace.target.parent))
+    install_verify_mock(workspace, tmp_path, monkeypatch)
+    assert run("verify-codex", "--format", "json") == cli.EXIT_OK
+    payload = envelope(capsys.readouterr().out)
+    assert payload["verification_context"] == "global"
+    assert Path(payload["probe_cwd"]).name.startswith("amc-probe-")
 
 
 def test_verify_codex_reports_a_note_in_text_mode(

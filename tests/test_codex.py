@@ -425,11 +425,66 @@ def test_the_probe_directory_holds_no_instruction_file(
         tmp_path, monkeypatch, mode="ok", bundle=bundle_file(tmp_path, rendered)
     )
     capability = codex.detect_capability()
-    document, command = codex.inspect_prompt_input(capability, expected=())
+    document, command, probe_cwd = codex.inspect_prompt_input(capability, expected=())
     assert isinstance(document, dict)
     assert command[-1] == codex.PROBE_PROMPT
+    assert probe_cwd.name.startswith(codex.PROBE_DIRECTORY_PREFIX)
     # The temporary directory is removed with the context, so nothing persists.
     assert not list(tmp_path.glob(f"{codex.PROBE_DIRECTORY_PREFIX}*"))
+
+
+def test_a_project_probe_uses_the_requested_startup_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: RenderedBundle
+) -> None:
+    install_mock_codex(
+        tmp_path, monkeypatch, mode="ok", bundle=bundle_file(tmp_path, rendered)
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    result = codex.verify_rendered_visibility(rendered, cwd=project)
+    assert result.probe_cwd == project
+    assert result.verification_context is codex.VerificationContext.PROJECT
+
+
+def test_a_missing_project_probe_directory_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_mock_codex(tmp_path, monkeypatch, mode="ok")
+    capability = codex.detect_capability()
+    missing = tmp_path / "missing"
+    with pytest.raises(CodexVerificationError) as raised:
+        codex.inspect_prompt_input(capability, expected=(), cwd=missing)
+    assert raised.value.problem is CodexProblem.PROBE_DIRECTORY_INVALID
+
+
+def test_a_relative_codex_home_is_resolved_from_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    home = codex.active_codex_home(environ={codex.CODEX_HOME_ENV: "custom-codex"})
+    assert home == tmp_path / "custom-codex"
+
+
+def test_verification_context_recognizes_only_active_global_files(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".codex"
+    assert (
+        codex.verification_context_for_target(home / "AGENTS.md", codex_home=home)
+        is codex.VerificationContext.GLOBAL
+    )
+    assert (
+        codex.verification_context_for_target(
+            home / "AGENTS.override.md", codex_home=home
+        )
+        is codex.VerificationContext.GLOBAL
+    )
+    assert (
+        codex.verification_context_for_target(
+            tmp_path / "project" / "AGENTS.md", codex_home=home
+        )
+        is codex.VerificationContext.PROJECT
+    )
 
 
 def test_an_unverified_summary_never_reports_current() -> None:
@@ -475,7 +530,7 @@ def test_recorded_prompt_input_shapes_are_searchable(rendered: RenderedBundle) -
 
 def test_markers_are_built_from_locked_identity() -> None:
     module = LockedModule(
-        id="core", resolved_source="/example/core.md", sha256="a" * 64, size_bytes=12
+        id="core", source="modules/core.md", sha256="a" * 64, size_bytes=12
     )
     markers = codex.required_markers((module,))
     assert "id=core" in markers[1]

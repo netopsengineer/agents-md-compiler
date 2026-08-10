@@ -1,19 +1,19 @@
 {
   "bundle_id": "example-global",
-  "format_version": 1,
-  "manifest_sha256": "2498c26380ff8d9fcb515bf6ccedd163ae52576ac4926618f508b60faae64c45",
+  "format_version": 2,
+  "manifest_sha256": "58afa5d997fe093782bedf461ba78389faeacef0f1253e14a50d70c5a9cdfc23",
   "modules": [
     {
       "id": "core",
-      "resolved_source": "/Volumes/extreme/Projects/Personal/SideProjects/agents-md-compiler/examples/minimal/modules/core.md",
       "sha256": "fbc1024cb8b0e167ac2eb174d7ea6a3dab09edcae86b06e6e58476ff2c68c045",
-      "size_bytes": 282
+      "size_bytes": 282,
+      "source": "modules/core.md"
     },
     {
       "id": "python",
-      "resolved_source": "/Volumes/extreme/Projects/Personal/SideProjects/agents-md-compiler/examples/minimal/modules/python.md",
       "sha256": "f8cd37a2ae6175f3e5af17a0183e63e6b3c504a75c0cac387473f4f3cbd87de7",
-      "size_bytes": 351
+      "size_bytes": 351,
+      "source": "modules/python.md"
     }
   ]
 }

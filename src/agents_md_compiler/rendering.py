@@ -1,4 +1,4 @@
-"""Format-version-1 rendering and structural validation.
+"""Format-version-2 rendering and structural validation.
 
 This module is pure: bytes and validated values in, bytes out. It performs no I/O,
 so rendering cannot depend on the filesystem, the clock, the environment, or the
@@ -17,6 +17,7 @@ from agents_md_compiler.models import (
     BUNDLE_TITLE,
     DO_NOT_EDIT_NOTICE,
     IDENTIFIER_PATTERN,
+    LEGACY_BUNDLE_TITLE,
     RENDER_FORMAT_VERSION,
     SHA256_PATTERN,
     BundleLock,
@@ -80,21 +81,29 @@ def end_marker(module: LockedModule) -> str:
     return f"<!-- agents-md-compiler:module-end id={module.id} -->"
 
 
-def build_header(*, bundle_id: str, manifest_sha256: str, lock_sha256: str) -> bytes:
+def build_header(
+    *,
+    bundle_id: str,
+    manifest_sha256: str,
+    lock_sha256: str,
+    format_version: int = RENDER_FORMAT_VERSION,
+) -> bytes:
     """Compose the seven-line header block.
 
     Args:
         bundle_id: Validated bundle identifier.
         manifest_sha256: Digest of the exact manifest bytes.
         lock_sha256: Digest of the canonical lock bytes.
+        format_version: Rendered format selecting the title and marker.
 
     Returns:
         The header bytes, ending with one LF.
     """
+    title = LEGACY_BUNDLE_TITLE if format_version == 1 else BUNDLE_TITLE
     lines = (
-        BUNDLE_TITLE,
+        title,
         "",
-        generated_marker(),
+        generated_marker(format_version),
         f"<!-- bundle-id: {bundle_id} -->",
         f"<!-- manifest-sha256: {manifest_sha256} -->",
         f"<!-- lock-sha256: {lock_sha256} -->",
@@ -173,7 +182,7 @@ def render_bundle(
         )
         module = LockedModule(
             id=snapshot.id,
-            resolved_source=str(snapshot.resolved_source),
+            source=snapshot.lexical_source,
             sha256=snapshot.sha256,
             size_bytes=snapshot.size_bytes,
         )
@@ -212,6 +221,7 @@ def validate_rendered(data: bytes, lock: BundleLock, lock_sha256: str) -> None:
         bundle_id=lock.bundle_id,
         manifest_sha256=lock.manifest_sha256,
         lock_sha256=lock_sha256,
+        format_version=lock.format_version,
     )
     if not data.startswith(header):
         raise RenderError(RenderProblem.HEADER_MISMATCH)
@@ -268,9 +278,14 @@ def declared_format(data: bytes) -> int | None:
         title, blank, marker = (line.decode("ascii") for line in lines[:3])
     except UnicodeDecodeError:
         return None
-    if title != BUNDLE_TITLE or blank != "":
+    if blank != "":
         return None
     match = GENERATED_MARKER_PATTERN.match(marker)
     if match is None:
         return None
-    return int(match.group(1))
+    format_version = int(match.group(1))
+    if format_version == 1 and title != LEGACY_BUNDLE_TITLE:
+        return None
+    if format_version != 1 and title != BUNDLE_TITLE:
+        return None
+    return format_version

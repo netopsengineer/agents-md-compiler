@@ -1,50 +1,58 @@
 # agents-md-compiler
 
-Compile an ordered set of Markdown policy modules into one deterministic,
-verifiable global `AGENTS.md`. No runtime dependencies, no network access, no
-shell invocation, and no LLM anywhere in the pipeline.
+Compile ordered Markdown policy modules into one deterministic, verifiable
+`AGENTS.md`. The target can be global, repository-local, nested, or another
+explicit path. The runtime has no dependencies, performs no network access,
+invokes no shell, and uses no LLM.
 
-## Why this exists
+## The mental model
 
-Coding agents read their instruction files once, at startup. Codex selects a
-single non-empty global file, builds its project instruction chain from the
-project root through the startup working directory, and then stops looking.
-Changing directories later does not add instructions to a running session, and
-Codex treats a Claude-style `@path` import as ordinary Markdown rather than as an
-include directive.
+One manifest owns one ordered module set and one default target. The compiler
+does not need a scope flag because Codex scope comes from the target path and the
+startup working directory:
 
-That leaves two options for a rule that must be available before task scope is
-known: paste everything into one enormous hand-maintained file, or generate that
-file from modular sources. Hand-maintaining it means the file drifts from the
-sources, nobody can tell which version is live, and a careless edit silently
-deletes a rule.
+| Purpose           | Typical target            | Verification context           |
+|-------------------|---------------------------|--------------------------------|
+| Global policy     | `~/.codex/AGENTS.md`      | Isolated empty directory       |
+| Repository policy | `<repo>/AGENTS.md`        | Repository root or descendant  |
+| Nested policy     | `<repo>/<area>/AGENTS.md` | Target directory or descendant |
+| Standalone export | Any new path              | No Codex visibility promise    |
 
-This tool takes the second option and makes it auditable:
+The same `lock`, `validate`, `check`, `install`, `status`, and `rollback`
+workflow applies to every target. `verify-codex` adds the startup directory
+needed to prove that Codex actually discovers project and nested targets.
 
-- canonical Markdown modules stay the only editable policy sources;
-- one reviewed manifest fixes the module set and its order;
-- a lock records each source's resolved path, byte size, and SHA-256;
-- rendering emits one self-contained file with stable provenance headers and the
-  exact source bytes between generated markers;
+Codex loads one global instruction file and then builds a project instruction
+chain from the project root toward its startup working directory. A closer file
+is applied later. See the official
+[Codex AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md).
+
+## Why compile instruction files
+
+Canonical modules are easier to review and reuse than one large hand-maintained
+file, but Codex needs a self-contained file at startup. This compiler connects
+those needs without hiding provenance:
+
+- canonical Markdown modules remain the only editable policy sources;
+- a strict manifest fixes the source set, order, and target;
+- a portable lock records each lexical source path, byte size, and SHA-256;
+- rendering preserves every accepted source byte between generated markers;
 - checking detects source drift, output drift, a missing target, shadowing, and
-  an unmanaged target;
-- installation is explicit, backed up, concurrency-safe, and atomic;
-- rollback restores the exact prior bytes, and refuses if the target changed;
-- verification inspects the model-visible startup input instead of trusting a
-  model to say it read the rules.
+  unmanaged content;
+- installation is explicit, atomic, backed up, and concurrency-safe;
+- rollback restores exact prior bytes and refuses after an external target edit;
+- runtime verification inspects Codex prompt input instead of asking a model what
+  it thinks it read.
 
-It deliberately does not generate nested or project-level `AGENTS.md` files, and
-it never detects your stack and writes rules for it. A repository may keep its own
-root `AGENTS.md` for concrete project facts; this compiler leaves that file alone.
+The tool does not discover repositories, detect stacks, select targets, or
+generate multiple files from one manifest. It does not author, rewrite,
+summarize, lint-fix, normalize, or deduplicate policy prose.
 
-## Requirements
+## Requirements and installation
 
 - Python 3.14 or newer.
 - Linux, macOS, or Windows.
-- No runtime dependencies. The package uses the standard library only.
-- `codex` on `PATH` only for the optional `verify-codex` command.
-
-## Install
+- `codex` on `PATH` only for optional runtime visibility verification.
 
 ```bash
 # Recommended: install as an isolated tool.
@@ -53,232 +61,274 @@ uv tool install agents-md-compiler
 # Or run without installing.
 uvx agents-md-compiler --help
 
-# Or into an existing environment.
+# Or install into an existing environment.
 pip install agents-md-compiler
 ```
 
-Both invocation forms are supported and equivalent:
+Both invocation forms are equivalent:
 
 ```bash
 agents-md-compiler --help
 python -m agents_md_compiler --help
 ```
 
-## Five minutes end to end
+## Global quickstart
 
-Scaffold an example manifest and modules, then lock, render, check, and install.
+`init` defaults to the active global base file and prints the exact lock command
+to run next.
 
 ```bash
-# 1. Scaffold. The manifest targets ~/.codex/AGENTS.md by default.
-agents-md-compiler init --directory ./policy
+# Creates policy/agents-md.toml and policy/modules/*.md.
+agents-md-compiler init --directory ./policy --bundle-id personal-policy
 
-# 2. Create the selected target's parent if this is a new Codex home.
+# Create the target parent when this is a new Codex home.
 mkdir -p ~/.codex
 
-# 3. Record exact source paths, sizes, and digests.
-agents-md-compiler lock --manifest ./policy/global-agents.toml
+agents-md-compiler lock --manifest ./policy/agents-md.toml
+agents-md-compiler validate --manifest ./policy/agents-md.toml
+agents-md-compiler render --manifest ./policy/agents-md.toml --locked
+agents-md-compiler check --manifest ./policy/agents-md.toml
 
-# 4. Validate the manifest, lock, sources, and rendered structure.
-agents-md-compiler validate --manifest ./policy/global-agents.toml
+# Preview writes nothing.
+agents-md-compiler install --manifest ./policy/agents-md.toml
 
-# 5. Look at the bytes before writing anything anywhere.
-agents-md-compiler render --manifest ./policy/global-agents.toml --locked | head -20
+# Explicitly mutate the target.
+agents-md-compiler install --manifest ./policy/agents-md.toml --apply
 
-# 6. Compare a fresh locked render against the target.
-agents-md-compiler check --manifest ./policy/global-agents.toml
-
-# 7. Preview the install. This writes nothing at all.
-agents-md-compiler install --manifest ./policy/global-agents.toml
-
-# 8. Install for real.
-agents-md-compiler install --manifest ./policy/global-agents.toml --apply
+# Prove the active global file is visible without project instructions.
+agents-md-compiler verify-codex --manifest ./policy/agents-md.toml
 ```
 
-Editing a canonical module after step 3 makes `check` exit 2 with `LOCK_STALE`
-until you rerun `lock`. That coupling is the point: the reviewed manifest, the
-lock, and the live file always agree or the tool tells you they do not.
+## Repository quickstart
 
-## Choose where output goes
-
-Use one of three destination controls according to the operation:
-
-- Set manifest `default_target` for the persistent managed destination. A relative
-  value resolves from the manifest directory. `~` expands to the user's home.
-- Pass `--target PATH` to `validate`, `check`, `status`, `install`, `rollback`, or
-  `verify-codex` to override the managed destination for one invocation. A relative
-  command-line path resolves from the current working directory.
-- Pass `render --locked --output PATH` to export one new standalone file. This
-  never replaces an existing path and does not create its parent directory.
-
-For example, preview and then install to an explicit managed target:
+Run this from the repository root. The target argument resolves from the current
+directory. `init` serializes it relative to `.agents`, so the generated manifest
+contains the portable value `../AGENTS.md`.
 
 ```bash
-agents-md-compiler install \
-  --manifest ./policy/global-agents.toml \
-  --target ~/.codex/AGENTS.md
+agents-md-compiler init \
+  --directory ./.agents \
+  --target ./AGENTS.md \
+  --bundle-id project-policy
 
-agents-md-compiler install \
-  --manifest ./policy/global-agents.toml \
-  --target ~/.codex/AGENTS.md \
-  --apply
+agents-md-compiler lock --manifest ./.agents/agents-md.toml
+agents-md-compiler validate --manifest ./.agents/agents-md.toml
+agents-md-compiler check --manifest ./.agents/agents-md.toml
+agents-md-compiler install --manifest ./.agents/agents-md.toml
+agents-md-compiler install --manifest ./.agents/agents-md.toml --apply
+
+# Prove the repository file is visible from this startup directory.
+agents-md-compiler verify-codex \
+  --manifest ./.agents/agents-md.toml \
+  --cwd .
 ```
 
-The selected target may have another file name, but only a real global
-`AGENTS.md` can be verified through Codex startup input. `verify-codex` therefore
-fails for an otherwise current custom target that Codex does not load globally.
-
-## Safety behavior you should know before installing
-
-**An existing target that this tool did not generate is never replaced
-silently.** If the target exists but carries no recognized generated header,
-`install --apply` refuses with `UNMANAGED_TARGET` and exit code 3. Adopting that
-file requires both flags, and the digest must match what you captured from the
-dry run:
+For a nested target, use the same layout and pass a working directory equal to or
+below the target's parent:
 
 ```bash
-# Capture the exact current bytes first.
-shasum -a 256 ~/.codex/AGENTS.md
+agents-md-compiler verify-codex \
+  --manifest ./.agents/backend/agents-md.toml \
+  --cwd ./backend/service
+```
 
-EXPECTED_TARGET_SHA256=<the 64-character digest you just captured>
+`CURRENT` means the selected target is byte-identical to a fresh locked render.
+It does not claim that Codex discovers that target from every possible working
+directory. A successful `verify-codex` makes the visibility claim only for its
+reported startup directory.
+
+## Normal edit workflow
+
+1. Edit canonical module files, never the generated target.
+2. Review the module and manifest changes.
+3. Run `lock` explicitly to refresh source identity.
+4. Run `validate` and review `render --locked` when needed.
+5. Run `check` to see whether the selected target needs installation.
+6. Preview `install`, then rerun it with `--apply`.
+7. Run `verify-codex` with the applicable startup context.
+
+Editing a module after locking produces `LOCK_STALE` and exit code 2. Read-only
+commands never refresh a lock or install a target implicitly.
+
+When `--manifest` is omitted, the CLI uses `./agents-md.toml`. It falls back to
+legacy `./global-agents.toml` only when the neutral default is absent. If both
+exist, the invocation is ambiguous and must use explicit `--manifest`.
+
+## Choosing a destination
+
+- Manifest `default_target` is the persistent managed destination. A relative
+  value resolves from the manifest directory. A leading `~` expands through the
+  standard home lookup.
+- `--target PATH` overrides the managed destination for one invocation. A
+  relative command-line path resolves from the current working directory.
+- `render --locked --output PATH` writes one standalone file only when the path
+  does not exist. It never replaces an existing file or creates its parent.
+
+Codex visibility is promised only for paths Codex actually discovers. A custom
+file name can still use compilation, checking, installation, and rollback, but a
+runtime probe will not pass unless Codex includes those bytes through its normal
+instruction discovery.
+
+## Adopting an existing AGENTS.md
+
+An existing file without a recognized generated header is unmanaged and is never
+replaced silently. First preview the install and capture the current file digest.
+Then provide both adoption flags:
+
+```bash
+shasum -a 256 ./AGENTS.md
+
+EXPECTED_TARGET_SHA256=<captured-64-character-digest>
 agents-md-compiler install \
-  --manifest ./policy/global-agents.toml \
-  --apply --replace-unmanaged \
+  --manifest ./.agents/agents-md.toml \
+  --apply \
+  --replace-unmanaged \
   --expect-target-sha256 "${EXPECTED_TARGET_SHA256}"
 ```
 
-If the digest does not match, the install refuses rather than overwriting a file
-that changed under you.
+A digest mismatch refuses the write. A successful adoption stores the exact
+handwritten predecessor as a backup before replacing it.
 
-Every successful install writes an immutable backup and a receipt under the user
-state root:
+## Safety and operational state
+
+All target mutations require `--apply`. Dry runs create no target, backup,
+receipt, deployment directory, or advisory lock.
+
+New operational evidence is scoped by bundle ID and resolved target digest under
+the user state root:
 
 - Linux and macOS: `${XDG_STATE_HOME:-~/.local/state}/agents-md-compiler/`
 - Windows: `%LOCALAPPDATA%/agents-md-compiler/`
 
-Rollback takes a specific receipt and refuses if the target changed after
-installation:
+Advisory locks live in one distribution-wide namespace and are keyed only by the
+resolved protected path. Two different bundle IDs therefore coordinate when they
+select the same target. Two targets using one bundle ID retain separate receipts,
+backups, preserved files, and last-install state.
+
+Rollback consumes one explicit install receipt:
 
 ```bash
-agents-md-compiler rollback --receipt <path/to/receipt.json> --apply
+agents-md-compiler rollback \
+  --manifest ./.agents/agents-md.toml \
+  --receipt <path/to/install-receipt.json> \
+  --apply
 ```
 
-Backups are never deleted or rotated automatically. If installation created a
-previously missing target, rollback moves the generated file into the state
-directory instead of deleting it irrecoverably.
+Rollback refuses unless the target still matches the receipt's installed digest.
+Backups are never deleted or rotated automatically. When an install created a
+previously missing target, rollback moves the generated file into private state
+instead of deleting it irrecoverably.
 
-Other refusals worth knowing:
+Other safety boundaries:
 
-- `render --output PATH` writes only to a path that does not exist. Use `install`
-  when you want replacement, backup, and rollback semantics.
-- The selected output or target parent must already exist and must be a directory.
-  Dry runs reject an unusable parent before describing the target as missing.
-- A symlinked target is refused, never followed.
-- A symlinked source is refused, with both the lexical and resolved paths
-  reported.
-- A non-empty global `AGENTS.override.md` beside the target is a `SHADOWED`
-  failure, because Codex would load the override instead of the file you just
-  installed.
+- sources and targets that are symbolic links are refused;
+- target parents must already exist and be directories;
+- a non-empty sibling `AGENTS.override.md` shadows a selected `AGENTS.md` and
+  causes `SHADOWED`;
+- a source may not alias the selected output;
+- a source containing the compiler marker prefix is rejected;
+- an unknown future rendered format is unmanaged and requires explicit adoption.
 
-If an install fails after atomically replacing the target but before all receipt
-state is committed, recovery runs while the target lock is still held. It first
-proves the target still contains the bytes written by that operation. It then
-restores an existing predecessor from its verified backup, or preserves a newly
-created generated file under the private state root and restores the target to
-its prior missing state. If either proof fails, the command reports recovery as
-failed and does not overwrite unknown bytes.
+If a post-replacement step fails, recovery runs under the same target lock. It
+first proves that the target still contains the operation's bytes, then restores
+the predecessor from its verified backup or preserves a newly generated file and
+restores prior absence.
 
-## Guarantees
+## Format-1 migration
 
-Deterministic output:
+Current releases emit portable lock format 2 and neutral rendered format 2.
 
-- identical manifest bytes, lock bytes, format version, and source bytes produce
-  identical output bytes;
-- generated output contains no timestamp, host name, process ID, random value,
-  temporary path, tool version, or working directory, so upgrading this tool
-  cannot change your policy bytes;
-- manifest order is output order, and rendering never depends on directory
-  enumeration order.
+- A strict format-1 lock is migration input. Read-only commands report
+  `LOCK_STALE`; explicit `lock` replaces it atomically with format 2.
+- Exact format-1 and format-2 rendered targets are managed. A format-1 target is
+  `DRIFTED` and upgrades through ordinary explicit install without unmanaged-file
+  adoption flags.
+- Upgrade installation backs up exact format-1 bytes. Receipt-based rollback can
+  restore them when the format-2 target has not changed.
+- Legacy bundle-only install receipts remain accepted for explicit validated
+  rollback. New evidence is written only to target-qualified deployment state.
 
-Source preservation:
+## Repository CI
 
-- every source is read as strict UTF-8 bytes and must use LF line endings with
-  exactly one final LF;
-- a UTF-8 BOM, a NUL byte, a CR byte, or invalid UTF-8 is rejected;
-- accepted bytes are copied verbatim between generated markers, never trimmed,
-  reflowed, lint-fixed, normalized, or summarized;
-- a source containing a compiler marker line is rejected rather than escaped.
+Commit the manifest, canonical modules, portable lock, and generated target when
+the repository chooses to track generated output. A read-only CI gate can run:
 
-Provenance, not trust: digests prove that bytes did not change between locking
-and rendering. They establish neither authorship nor safety. See
+```bash
+agents-md-compiler lock --manifest ./.agents/agents-md.toml --check
+agents-md-compiler validate --manifest ./.agents/agents-md.toml
+agents-md-compiler check --manifest ./.agents/agents-md.toml
+```
+
+`verify-codex` is an environment integration gate, not a deterministic unit gate.
+Run it where the intended Codex executable and startup context are available.
+
+## Determinism and preservation guarantees
+
+- Equal manifest and source bytes produce equal format-2 lock and rendered bytes
+  across checkout roots.
+- Output contains no timestamp, host name, process ID, random value, temporary
+  path, resolved source path, package version, or working directory.
+- Manifest order is output order. Rendering does not enumerate source folders.
+- Sources must be non-empty strict UTF-8 with LF line endings and exactly one
+  final LF. BOM, NUL, CR, invalid UTF-8, and marker collisions are rejected.
+- Accepted source bytes are copied exactly. The compiler never trims, reflows,
+  normalizes, lint-fixes, summarizes, or deduplicates them.
+
+Digests prove that bytes did not change between locking and rendering. They do
+not establish authorship, correctness, or safety. See
 [`docs/security-model.md`](docs/security-model.md).
 
 ## JSON automation
 
-Every command accepts `--format json` and prints exactly one JSON object to
-stdout. Diagnostics stay on stderr, so a pipeline can parse stdout unconditionally.
+Every command accepts `--format json` and emits exactly one JSON object to stdout.
+Diagnostics remain on stderr.
 
 ```bash
-agents-md-compiler status --manifest ./policy/global-agents.toml --format json
+agents-md-compiler status \
+  --manifest ./.agents/agents-md.toml \
+  --format json
 ```
 
-```json
-{
-  "command": "status",
-  "ok": true,
-  "schema_version": 1,
-  "state": "CURRENT"
-}
-```
-
-Drive automation from the exit code, and read `state` for the reason:
+Drive automation from the exit code and inspect `state` for the reason:
 
 | Code | Meaning                                                                  |
 |------|--------------------------------------------------------------------------|
 | 0    | Succeeded; `CURRENT` when a target state applies                         |
-| 1    | Invalid invocation, invalid manifest, lock, or source, or an I/O error   |
+| 1    | Invalid invocation, input, I/O, or runtime verification failure          |
 | 2    | Read-only difference: `LOCK_MISSING`, `LOCK_STALE`, `DRIFTED`, `MISSING` |
 | 3    | Safety refusal: `SHADOWED`, `UNMANAGED_TARGET`, `CONCURRENT_CHANGE`      |
 
-`--quiet` suppresses non-error stderr. It never suppresses JSON output or
-requested render output.
+`--quiet` suppresses non-error stderr. It never suppresses JSON or requested
+render output.
 
-## Codex verification, and its limits
+## Codex verification limits
 
-`verify-codex` confirms that the installed bundle is actually visible to the
-model at startup:
+`verify-codex` resolves `codex` from `PATH`, captures `codex --version`, confirms
+that `debug prompt-input` is available, and searches the returned JSON for the
+generated marker, every module boundary, and unique content sentinels from the
+first and last modules.
 
-```bash
-agents-md-compiler verify-codex --manifest ./policy/global-agents.toml
-```
+For the active global base or override file, the probe runs from a disposable
+empty directory. For a project or nested target, it runs from explicit `--cwd` or
+the target parent. The project directory must be equal to or below the target
+parent.
 
-It resolves `codex` from `PATH` without a shell, records `codex --version`,
-confirms the CLI exposes `debug prompt-input`, runs a non-interactive probe from a
-disposable directory containing no project instruction file, parses the returned
-JSON, and confirms that the generated header, every begin and end module marker,
-and unique content sentinels from the first and last modules are all present.
-
-What it does not do:
-
-- send a model request or require API authentication;
-- modify Codex configuration or copy policy files into the probe directory;
-- claim semantic compliance. Marker presence proves the bytes reached the model's
-  input. It does not prove the model obeyed them.
-
-`codex debug prompt-input` is a debug interface, not a promised stable API. If the
-installed Codex removes or changes it, this command reports `RUNTIME_UNVERIFIED`
-with the exact command and the observed failure, and exits 1. It never falls back
-to asking a model to summarize its own instructions.
+The command sends no model request, requires no API authentication, changes no
+Codex configuration, and makes no semantic-compliance claim. Marker presence
+proves visibility, not obedience. If the debug interface is missing or changed,
+the state is `RUNTIME_UNVERIFIED` and the exact failing command is reported.
 
 ## Documentation
 
-| Document                                                   | Contents                                                        |
-|------------------------------------------------------------|-----------------------------------------------------------------|
-| [`docs/manifest-v1.md`](docs/manifest-v1.md)               | Manifest schema version 1, path bases, and every rejection rule |
-| [`docs/rendered-format-v1.md`](docs/rendered-format-v1.md) | Exact output bytes, markers, and hashing boundaries             |
-| [`docs/cli-contract.md`](docs/cli-contract.md)             | Commands, options, JSON envelopes, states, and exit codes       |
-| [`docs/security-model.md`](docs/security-model.md)         | Trust boundaries, path and TOCTOU handling, and recovery        |
-| [`AGENTS.md`](AGENTS.md)                                   | Project contract for agents working on this repository          |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md)                       | Setup, commit conventions, and release boundaries               |
+| Document                                                   | Contents                                          |
+|------------------------------------------------------------|---------------------------------------------------|
+| [`docs/manifest-v1.md`](docs/manifest-v1.md)               | Manifest schema, path bases, and rejection rules  |
+| [`docs/rendered-format-v1.md`](docs/rendered-format-v1.md) | Frozen legacy lock and rendered format            |
+| [`docs/rendered-format-v2.md`](docs/rendered-format-v2.md) | Current portable lock and neutral rendered format |
+| [`docs/cli-contract.md`](docs/cli-contract.md)             | Commands, options, JSON, states, and exits        |
+| [`docs/security-model.md`](docs/security-model.md)         | Trust, path, concurrency, and recovery boundaries |
+| [`AGENTS.md`](AGENTS.md)                                   | Generated project contract for repository agents  |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md)                       | Development, tests, and release boundaries        |
 
 ## License
 

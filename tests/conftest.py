@@ -46,7 +46,7 @@ EXTRAS_TEXT = """# Extra Policy
 This module exists so tests can assert first, middle, and last placement.
 """
 
-NON_ASCII_TEXT = "x" * 20 + "\u00e9 trailing prose here\n"
+NON_ASCII_TEXT = "x" * 27 + "\u00e9 trailing prose here\n"
 """UTF-8 policy text whose multibyte character crosses header probe byte 512."""
 
 
