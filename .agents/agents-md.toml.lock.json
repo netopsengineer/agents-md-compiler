@@ -5,8 +5,8 @@
   "modules": [
     {
       "id": "project-contract",
-      "sha256": "c4afcd43aff071b7f4342662606256592c3ade33c5f27762b33a59d257b2c8a9",
-      "size_bytes": 17124,
+      "sha256": "7047965f0b835a5f4843adcbc1fb799b62a30e59741bf0fc8a8231ec08c3e61c",
+      "size_bytes": 17923,
       "source": "modules/project-contract.md"
     }
   ]

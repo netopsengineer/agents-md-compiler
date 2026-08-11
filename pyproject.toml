@@ -70,7 +70,13 @@ source-exclude = [
 ]
 
 [dependency-groups]
-# Every version below was resolved live on 2026-08-06 from PyPI plus the upstream
+# Dependabot owns this exact bootstrap pin. setup-uv installs the matching package
+# from uv.lock, while the separate group keeps uv itself out of the default
+# development environment.
+bootstrap = [
+    "uv==0.12.3",
+]
+# Every version below was resolved live on 2026-08-10 from PyPI plus the upstream
 # GitHub release and tag endpoints, and every one returned no OSV advisory. See
 # docs/dependency-verification.md for the evidence table.
 dev = [
@@ -80,7 +86,7 @@ dev = [
     # dependency exists purely to prove each schema accepts every valid fixture
     # and rejects every invalid one.
     "jsonschema>=4.26.0",
-    "prek>=0.4.12",
+    "prek>=0.4.13",
     "pydoclint>=0.9.1",
     "pyright>=1.1.411",
     "pytest>=9.1.1",
@@ -91,7 +97,7 @@ dev = [
     # runs ruff twice (`uv run ruff check .` from this group, and the prek hook),
     # and the two must agree on the rule set or the local and CI verdicts diverge
     # (PY-CI-001).
-    "ruff>=0.16.1",
+    "ruff>=0.16.2",
     # Current release, no advisories. Keeping twine in the lock makes the metadata
     # gate reproducible instead of resolving a floating uvx version at gate time.
     # This pin is not required by the metadata version: uv_build 0.12.2 emits
@@ -225,12 +231,29 @@ include = ["src", "tests", "scripts"]
 # finalizer creates the tag and release only after PyPI accepts the artifact.
 # Version 0.1.0 itself is published through the explicit workflow_dispatch
 # bootstrap path because no prior release tag exists for PSR to compare against.
-# The uv pin must match the release workflow's setup-uv version.
+# The bootstrap uv requirement is resolved from uv.lock below, which is the same
+# version source consumed by every setup-uv workflow step.
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 build_command = """
 set -eu
-python -m pip install --disable-pip-version-check "uv==0.12.2"
+UV_REQUIREMENT="$(
+python - <<'PY'
+import tomllib
+from pathlib import Path
+
+lock = tomllib.loads(Path("uv.lock").read_text(encoding="utf-8"))
+versions = [
+    package["version"]
+    for package in lock["package"]
+    if package["name"] == "uv"
+]
+if len(versions) != 1:
+    raise SystemExit("uv.lock must contain exactly one uv package")
+print(f"uv=={versions[0]}")
+PY
+)"
+python -m pip install --disable-pip-version-check "$UV_REQUIREMENT"
 uv lock --upgrade-package "$PACKAGE_NAME"
 git add uv.lock
 """

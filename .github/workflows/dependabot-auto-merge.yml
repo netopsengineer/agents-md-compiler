@@ -1,94 +1,74 @@
 ---
-# Dependabot auto-merge is NOT enabled, and this workflow does not merge anything.
-#
-# The execution plan permits automatic merging only after branch protection, required
-# checks, actor checks, and least-privilege token behavior are configured *and tested*.
-# None of that can be configured from inside the repository, so shipping a working
-# auto-merge trigger here would be shipping untested privileged automation.
-#
-# Two designs were rejected rather than shipped:
-#
-#   - `pull_request_target`, the usual trigger for this task, because a Dependabot
-#     pull request gets a read-only token under `pull_request`. zizmor classifies
-#     that trigger as fundamentally insecure, and zizmor is a required gate for this
-#     repository. Reviewing it in as "safe because we never check out the head" would
-#     mean carrying a high-severity finding on a workflow nobody had ever run.
-#   - Auto-merge without required status checks, which merges as soon as it is
-#     queued. That replaces review with nothing at all.
-#
-# What this workflow does instead: on demand, it reports whether the repository is
-# actually ready for auto-merge, by querying settings rather than assuming them. Run
-# it after configuring the repository, and enable auto-merge only once it reports
-# every prerequisite as satisfied.
-#
-# Enabling checklist, in order:
-#   1. Protect `main`: no direct pushes, pull requests required.
-#   2. Mark the validate.yml jobs as required status checks.
-#   3. Turn on "Allow auto-merge" in the repository settings.
-#   4. Run this workflow and confirm it reports READY.
-#   5. Add the merge trigger, restricted to patch and minor `direct:development`
-#      updates established from `dependabot/fetch-metadata`'s verified commit
-#      metadata, never from `github.actor`.
-#   6. Watch one real Dependabot pull request through the path before relying on it.
+# Queue verified Dependabot pull requests for GitHub-native squash auto-merge.
+# This trusted scheduled workflow never checks out or executes pull-request content.
+# Strict status checks in the active main-branch ruleset decide whether the exact
+# queued head can merge.
 name: dependabot-auto-merge
 
 on:
+  schedule:
+    - cron: "11,41 * * * *"
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
+
+concurrency:
+  group: dependabot-auto-merge
+  cancel-in-progress: false
 
 jobs:
-  readiness:
-    name: report auto-merge readiness
+  queue:
+    name: queue verified update
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
         with:
           egress-policy: audit
 
-      - name: Check the prerequisites
+      - name: Verify the pull request and queue auto-merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          ready=true
 
-          # 3. Auto-merge allowed at the repository level.
-          if [ "$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.allow_auto_merge')" = "true" ]; then
-            echo "ok       repository allows auto-merge"
-          else
-            echo "MISSING  repository does not allow auto-merge"
-            ready=false
+          mapfile -t numbers < <(
+            gh api --paginate \
+              "repos/${REPOSITORY}/pulls?state=open&per_page=100" \
+              --jq '.[] | select(.user.login == "dependabot[bot]") | .number'
+          )
+          if [ "${#numbers[@]}" -eq 0 ]; then
+            echo "No open Dependabot pull requests."
+            exit 0
           fi
 
-          # 1 and 2. Branch protection on main, with required status checks. A 404
-          # here means unprotected, which is the common case on a new repository.
-          if protection=$(gh api "repos/${GITHUB_REPOSITORY}/branches/main/protection" 2>/dev/null); then
-            echo "ok       main is protected"
-            contexts=$(printf '%s' "$protection" |
-              python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join(d.get("required_status_checks",{}).get("contexts",[])) or "NONE")')
-            if [ "$contexts" = "NONE" ]; then
-              echo "MISSING  main has no required status checks"
-              ready=false
-            else
-              echo "ok       required status checks: ${contexts}"
+          for number in "${numbers[@]}"; do
+            pull="$(gh api "repos/${REPOSITORY}/pulls/${number}")"
+            head_sha="$(jq -r '.head.sha' <<<"$pull")"
+
+            jq -e \
+              --arg repository "$REPOSITORY" \
+              '.user.login == "dependabot[bot]" and
+               .user.type == "Bot" and
+               .state == "open" and
+               .draft == false and
+               .base.ref == "main" and
+               .head.repo.full_name == $repository and
+               (.head.ref | startswith("dependabot/"))' <<<"$pull" >/dev/null
+
+            if [ "$(jq -r '.auto_merge != null' <<<"$pull")" = "true" ]; then
+              echo "Pull request ${number} is already queued for auto-merge."
+              continue
             fi
-            reviews=$(printf '%s' "$protection" |
-              python3 -c 'import json,sys; d=json.load(sys.stdin); print("yes" if d.get("required_pull_request_reviews") else "no")')
-            echo "info     pull-request reviews required: ${reviews}"
-          else
-            echo "MISSING  main is not protected"
-            ready=false
-          fi
 
-          echo
-          if [ "$ready" = true ]; then
-            echo "READY: every queryable prerequisite is satisfied. Step 5 of the"
-            echo "checklist in this file is still a deliberate human change."
-          else
-            echo "NOT READY: auto-merge must stay disabled until the items marked"
-            echo "MISSING above are configured." >&2
-            exit 1
-          fi
+            gh pr merge "$number" \
+              --repo "$REPOSITORY" \
+              --auto \
+              --squash \
+              --match-head-commit "$head_sha"
+          done

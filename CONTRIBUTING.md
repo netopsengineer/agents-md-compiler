@@ -78,8 +78,18 @@ Never write a version, hook revision, or action SHA from memory.
 - Record the evidence, with source URLs and the date, in
   [`docs/dependency-verification.md`](docs/dependency-verification.md).
 
-Dependabot opens one grouped pull request per ecosystem (`uv`, `pre-commit`,
-`github-actions`). Refresh the lock with `uv lock`, never by editing `uv.lock`.
+Dependabot checks `uv`, `pre-commit`, and `github-actions` daily after the required
+seven-day supply-chain cooldown. It combines every available update into one
+multi-ecosystem pull request so synchronized Python tools and hook revisions move
+together. The protected branch automatically squash-merges a verified Dependabot
+pull request after every required test, type, artifact, platform, pin, dependency
+review, and advisory check passes for its current head.
+
+The exact `uv` CLI version is the `bootstrap` dependency in `pyproject.toml` and
+`uv.lock`; every `setup-uv` step reads it from the lock. Refresh the lock with
+`uv lock`, never by editing `uv.lock`. If an automated update fails, leave its pull
+request open and update the project for compatibility. Do not bypass a required
+gate merely to make the dependency current.
 
 ## Changing a public format
 

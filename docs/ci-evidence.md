@@ -7,6 +7,8 @@ of a past verification, not permission to skip a current one.
 
 Action-pin verification date: 2026-08-07. Release and delivery evidence updated
 2026-08-07. The tagless release-preparation path was reverified on 2026-08-10.
+Dependency ownership, auto-merge design, and every Action pin were reverified on
+2026-08-10.
 Tooling: `gh api` against
 `repos/{owner}/{repo}/releases/latest`, `/tags`, and `/git/refs/tags/{tag}`, with
 annotated tags resolved through `/git/tags/{object}` to their commit.
@@ -26,7 +28,7 @@ its repository at the verification date.
 | `actions/download-artifact`                       | `v8.0.1`  | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | 2         | match        |
 | `actions/create-github-app-token`                 | `v3.2.0`  | `bcd2ba49218906704ab6c1aa796996da409d3eb1` | 1         | match        |
 | `actions/dependency-review-action`                | `v5.0.0`  | `a1d282b36b6f3519aa1f3fc636f609c47dddb294` | 1         | match        |
-| `google/osv-scanner-action`                       | `v2.3.8`  | `9a498708959aeaef5ef730655706c5a1df1edbc2` | 1         | match        |
+| `google/osv-scanner-action`                       | `v2.5.0`  | `8deb546fdb875b9996d27d4950be7312dac076a1` | 1         | match        |
 | `pypa/gh-action-pypi-publish`                     | `v1.14.2` | `dc37677b2e1c63e2034f94d8a5b11f265b73ba33` | 1         | match        |
 | `python-semantic-release/python-semantic-release` | `v10.6.1` | `39dd2052f2ce8282a5d932c31d58a2ca06d2550e` | 1         | match        |
 
@@ -34,15 +36,15 @@ its repository at the verification date.
 anticipate needing it. It was resolved and advisory-checked at the same time as the
 others: OSV.dev returned no advisories for it.
 
-Two of the pinned actions reference further software by a mutable identifier inside
-their own implementation, which this project cannot pin from the outside:
+One pinned action references further software by a mutable identifier inside its own
+implementation, which this project cannot pin from the outside:
 
 - `google/osv-scanner-action`'s scanner step runs the container image
-  `ghcr.io/google/osv-scanner-action:v2.3.8`, a tag rather than a digest.
-- the OSV reusable workflow calls `actions/download-artifact@v8`, a major-version tag.
-
-Both are upstream decisions inside a SHA-pinned entry point. Pinning the entry point
-is what this repository controls, and it is pinned.
+  `ghcr.io/google/osv-scanner-action:v2.5.0`, a tag rather than a digest.
+OSV Scanner Action v2.5.0 replaced its internal mutable download-artifact reference
+with a SHA. The remaining container tag is an upstream decision inside a SHA-pinned
+entry point. Pinning the entry point is what this repository controls, and it is
+pinned.
 
 ### Enforcement rather than inspection
 
@@ -59,6 +61,13 @@ default `dependencies` and ecosystem labels when they do not exist. Custom label
 would require separate repository provisioning that this repository does not perform.
 The checked-in configuration therefore cannot name a label that is absent from a new
 or existing repository.
+
+It also requires one daily multi-ecosystem group covering every dependency, the
+seven-day cooldown required by zizmor, one exact Dependabot-owned `uv` bootstrap
+requirement, `version-file: uv.lock` on every setup-uv step, and the trusted
+auto-merge workflow's bot identity, repository, branch, and exact-head controls.
+Mutation tests remove each boundary and prove that the offline gate rejects the
+weakened form.
 
 For `release.yml`, the same gate requires the exact-push package eligibility
 check, stage-only python-semantic-release inputs, an exact staged-path allowlist,
@@ -80,13 +89,14 @@ repository configuration passed with seven files checked.
 Every workflow declares `permissions: contents: read` at the top level, so any job
 without its own block is read-only. Elevations, in full:
 
-| Workflow            | Job                 | Permissions                                                 | Why                                                  |
-|---------------------|---------------------|-------------------------------------------------------------|------------------------------------------------------|
-| `release.yml`       | `publish`           | `id-token: write` only                                      | Mints the OIDC token PyPI exchanges for upload       |
-| `release.yml`       | `finalize`          | `contents: write`                                           | Creates the release tag and the GitHub release       |
-| `security-scan.yml` | `osv-scanner`       | `actions: read`, `contents: read`, `security-events: write` | Uploads SARIF to code scanning                       |
-| `security-scan.yml` | `dependency-review` | `contents: read`, `pull-requests: write`                    | Posts the failure summary comment                    |
-| `auto-fix.yml`      | `fix`               | `contents: write`                                           | Pushes the mechanical fix commit to a feature branch |
+| Workflow                    | Job                 | Permissions                                                 | Why                                                  |
+|-----------------------------|---------------------|-------------------------------------------------------------|------------------------------------------------------|
+| `release.yml`               | `publish`           | `id-token: write` only                                      | Mints the OIDC token PyPI exchanges for upload       |
+| `release.yml`               | `finalize`          | `contents: write`                                           | Creates the release tag and the GitHub release       |
+| `security-scan.yml`         | `osv-scanner`       | `actions: read`, `contents: read`, `security-events: write` | Uploads SARIF to code scanning                       |
+| `security-scan.yml`         | `dependency-review` | `contents: read`, `pull-requests: write`                    | Posts the failure summary comment                    |
+| `auto-fix.yml`              | `fix`               | `contents: write`                                           | Pushes the mechanical fix commit to a feature branch |
+| `dependabot-auto-merge.yml` | `queue`             | `contents: write`, `pull-requests: write`                   | Queues verified bot PRs for ruleset-gated auto-merge |
 
 Properties this table establishes:
 
@@ -97,6 +107,34 @@ Properties this table establishes:
   protected-branch write with a per-run GitHub App token instead, which is why it does
   not appear above.
 - No job uses `pull_request_target`.
+- No job uses a privileged `workflow_run` trigger.
+
+## Dependabot ownership and auto-merge
+
+Dependabot checks the `uv`, `pre-commit`, and `github-actions` ecosystems through
+one daily `all-dependencies` multi-ecosystem group. Each ecosystem retains the
+seven-day cooldown required by the blocking zizmor policy. This grouping lets a
+Python tool and its matching hook revision move in one pull request instead of
+creating independent updates that fail the synchronization gate.
+
+The exact `uv` executable is the sole exact requirement in the non-default
+`bootstrap` dependency group. It is present in `uv.lock`; every setup-uv action
+reads that lock, and semantic release derives its bootstrap installation from the
+same package entry. No workflow carries a second `UV_VERSION` value.
+
+The auto-merge workflow runs only from the default branch on a schedule or an
+explicit dispatch. It checks out no code and consumes no workflow artifact. For
+each open pull request, it requires the platform-authenticated
+`dependabot[bot]` identity, bot account type, open non-draft state, `main` base,
+same-repository head, and `dependabot/` branch. It passes the current head SHA to
+`gh pr merge --auto --squash --match-head-commit`. GitHub performs no merge until
+the strict active main ruleset reports every required check successful for the
+current head.
+
+This design was selected after the blocking zizmor gate rejected
+`workflow_run` as a dangerous privileged trigger. The scheduled design preserves
+automatic behavior without executing untrusted pull-request content in a
+write-capable context.
 
 ## Release trust boundary
 
@@ -538,7 +576,6 @@ step can safely consume the stage-only result before any remote write.
 
 | Item                      | Status and dependency                                             |
 |---------------------------|-------------------------------------------------------------------|
-| Dependabot auto-merge     | Deliberately disabled until all separate prerequisites are tested |
 | TestPyPI rehearsal        | Operator-declined; no TestPyPI project or publisher is configured |
 | Publish egress block mode | Needs an observed and reviewed complete endpoint allowlist        |
 | Blocking `uv audit`       | Waits for the upstream interface to leave experimental status     |

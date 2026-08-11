@@ -89,8 +89,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Must match the uv pin in [tool.semantic_release].build_command.
-  UV_VERSION: "0.12.2"
   BOOTSTRAP_VERSION: "0.1.0"
 
 jobs:
@@ -267,7 +265,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           # validate.yml owns the shared Linux cache write. Release jobs restore
           # that cache but never compete to reserve the same key.
           enable-cache: true
@@ -535,7 +533,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           enable-cache: true
           cache-dependency-glob: uv.lock
           save-cache: false
@@ -591,7 +589,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           # The release gate and validate gate already populated this key. The
           # artifact proof remains a cache consumer, never another writer.
           enable-cache: true
