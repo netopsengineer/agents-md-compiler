@@ -9,7 +9,7 @@ Eight things must hold for this repository's supply chain (PY-CI-003, PY-SEC-009
 - ``.github/dependabot.yml`` omits custom ``labels`` so GitHub creates and applies
   Dependabot's default labels without repository provisioning; and
 - every Dependabot ecosystem belongs to one daily lockstep group with the required
-  seven-day supply-chain cooldown; and
+  group-level pull-request limit and seven-day supply-chain cooldown; and
 - every ``setup-uv`` step installs the exact ``uv`` package from ``uv.lock``; and
 - the project carries one Dependabot-owned exact ``uv`` bootstrap requirement; and
 - the auto-merge workflow binds a verified Dependabot pull request to the exact
@@ -57,6 +57,10 @@ VERSION_IN_COMMENT = re.compile(r"v?\d+\.\d+")
 # Custom labels override Dependabot's defaults and must be provisioned separately.
 # Quoted keys and flow mappings are accepted YAML and must not bypass the gate.
 DEPENDABOT_LABELS = re.compile(r"(?:^|[^A-Za-z0-9_-])(?:labels|['\"]labels['\"])\s*:")
+DEPENDABOT_PR_LIMIT = re.compile(
+    r"^(?P<indent>\s*)(?:open-pull-requests-limit|['\"]open-pull-requests-limit['\"]):"
+    r"\s*(?P<value>\S+)\s*$"
+)
 
 WORKFLOW_JOB = re.compile(r"^  (?P<name>[A-Za-z0-9_-]+):\s*$")
 
@@ -193,7 +197,7 @@ def check_pre_commit(path: Path) -> list[str]:
 
 
 def check_dependabot(path: Path) -> list[str]:
-    """Require labels, one daily lockstep group, and supply-chain cooldowns.
+    """Require labels, one bounded daily lockstep group, and cooldowns.
 
     Omitting the key preserves GitHub's documented behavior: Dependabot creates
     its default dependency and ecosystem labels when they do not exist. Custom
@@ -226,6 +230,24 @@ def check_dependabot(path: Path) -> list[str]:
     all_patterns = sum('patterns: ["*"]' in line for line in active_lines)
     cooldowns = sum("cooldown:" in line for line in active_lines)
     cooldown_days = sum("default-days: 7" in line for line in active_lines)
+    group_headers = [
+        index
+        for index, line in enumerate(active_lines)
+        if line == "multi-ecosystem-groups:"
+    ]
+    lockstep_group_headers = [
+        index
+        for index, line in enumerate(active_lines)
+        if line == "  all-dependencies:"
+    ]
+    updates_headers = [
+        index for index, line in enumerate(active_lines) if line == "updates:"
+    ]
+    pull_request_limits = [
+        (index, match)
+        for index, line in enumerate(active_lines)
+        if (match := DEPENDABOT_PR_LIMIT.match(line)) is not None
+    ]
     if not ecosystems or daily_schedules != 1:
         findings.append(
             f"{path}: the lockstep group must define exactly one daily schedule; "
@@ -239,6 +261,24 @@ def check_dependabot(path: Path) -> list[str]:
     if cooldowns != ecosystems or cooldown_days != ecosystems:
         findings.append(
             f"{path}: every package ecosystem must define a seven-day cooldown"
+        )
+    group_limit_is_valid = (
+        len(group_headers) == 1
+        and len(lockstep_group_headers) == 1
+        and len(updates_headers) == 1
+        and len(pull_request_limits) == 1
+        and group_headers[0]
+        < lockstep_group_headers[0]
+        < pull_request_limits[0][0]
+        < updates_headers[0]
+        and pull_request_limits[0][1].group("indent") == "    "
+        and pull_request_limits[0][1].group("value") == "5"
+    )
+    if not group_limit_is_valid:
+        findings.append(
+            f"{path}: `multi-ecosystem-groups.all-dependencies` must define "
+            "exactly one `open-pull-requests-limit: 5`; member updates must not "
+            "define it"
         )
     return findings
 

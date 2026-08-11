@@ -27,6 +27,7 @@ multi-ecosystem-groups:
       timezone: Etc/UTC
     commit-message:
       prefix: "chore(deps)"
+    open-pull-requests-limit: 5
 
 updates:
   # -- Python development dependencies ----------------------------------
@@ -36,7 +37,6 @@ updates:
     directory: "/"
     patterns: ["*"]
     multi-ecosystem-group: all-dependencies
-    open-pull-requests-limit: 5
     cooldown:
       default-days: 7
 
@@ -49,7 +49,6 @@ updates:
     directory: "/"
     patterns: ["*"]
     multi-ecosystem-group: all-dependencies
-    open-pull-requests-limit: 5
     cooldown:
       default-days: 7
 
@@ -60,6 +59,5 @@ updates:
     directory: "/"
     patterns: ["*"]
     multi-ecosystem-group: all-dependencies
-    open-pull-requests-limit: 5
     cooldown:
       default-days: 7
