@@ -154,9 +154,14 @@ def test_dependabot_owns_daily_lockstep_updates() -> None:
             "seven-day cooldown",
         ),
         (
-            "    open-pull-requests-limit: 5\n",
+            '    patterns: ["*"]\n',
             "    labels: [dependencies]\n",
             "custom Dependabot `labels` are forbidden",
+        ),
+        (
+            "    open-pull-requests-limit: 5\n",
+            "    open-pull-requests-limit: 4\n",
+            "must define exactly one `open-pull-requests-limit: 5`",
         ),
     ],
 )
@@ -174,6 +179,25 @@ def test_rejects_nonautomatic_dependabot_policy(
     findings = check_dependabot(config)
 
     assert any(expected in finding for finding in findings)
+
+
+def test_rejects_dependabot_limit_on_a_member_update(tmp_path: Path) -> None:
+    original = DEPENDABOT_CONFIG.read_text(encoding="utf-8")
+    group_limit = "    open-pull-requests-limit: 5\n"
+    first_member = '    directory: "/"\n'
+    assert group_limit in original
+    assert first_member in original
+    misplaced = original.replace(group_limit, "", 1).replace(
+        first_member,
+        first_member + group_limit,
+        1,
+    )
+    config = tmp_path / "dependabot.yml"
+    config.write_text(misplaced, encoding="utf-8")
+
+    findings = check_dependabot(config)
+
+    assert any("member updates must not define it" in finding for finding in findings)
 
 
 def test_dependabot_auto_merge_preserves_trust_boundaries() -> None:

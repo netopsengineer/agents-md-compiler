@@ -62,12 +62,14 @@ would require separate repository provisioning that this repository does not per
 The checked-in configuration therefore cannot name a label that is absent from a new
 or existing repository.
 
-It also requires one daily multi-ecosystem group covering every dependency, the
-seven-day cooldown required by zizmor, one exact Dependabot-owned `uv` bootstrap
-requirement, `version-file: uv.lock` on every setup-uv step, and the trusted
-auto-merge workflow's bot identity, repository, branch, and exact-head controls.
-Mutation tests remove each boundary and prove that the offline gate rejects the
-weakened form.
+It also requires one daily multi-ecosystem group covering every dependency, exactly
+one group-level `open-pull-requests-limit: 5`, the seven-day cooldown required by
+zizmor, one exact Dependabot-owned `uv` bootstrap requirement, `version-file:
+uv.lock` on every setup-uv step, and the trusted auto-merge workflow's bot identity,
+repository, branch, and exact-head controls. GitHub rejects the pull-request limit
+on member updates in a multi-ecosystem group. The offline gate therefore checks both
+the value and its location before `updates`. Mutation tests remove each boundary and
+move the limit onto a member update to prove that the gate rejects the invalid form.
 
 For `release.yml`, the same gate requires the exact-push package eligibility
 check, stage-only python-semantic-release inputs, an exact staged-path allowlist,
@@ -115,7 +117,8 @@ Dependabot checks the `uv`, `pre-commit`, and `github-actions` ecosystems throug
 one daily `all-dependencies` multi-ecosystem group. Each ecosystem retains the
 seven-day cooldown required by the blocking zizmor policy. This grouping lets a
 Python tool and its matching hook revision move in one pull request instead of
-creating independent updates that fail the synchronization gate.
+creating independent updates that fail the synchronization gate. The group carries
+the shared five-pull-request limit; the member update blocks do not repeat it.
 
 The exact `uv` executable is the sole exact requirement in the non-default
 `bootstrap` dependency group. It is present in `uv.lock`; every setup-uv action
