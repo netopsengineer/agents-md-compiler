@@ -7,6 +7,7 @@ re-check rather than as permission to skip verification.
 
 - Project dependency verification date: 2026-08-06
 - One-off release verifier and public identity update: 2026-08-07
+- Automated dependency ownership and current-version refresh: 2026-08-10
 - Tools used: `curl` against PyPI and npm JSON endpoints, `gh api` against the
   GitHub REST API, `osv_scan.py` against `api.osv.dev`, `WebFetch` against
   official documentation and release notes
@@ -27,26 +28,31 @@ because 3.15 is still prerelease; reclassify it once 3.15 reaches `bugfix`.
 
 ## Selected Python package versions
 
-Every version is the newest release on PyPI and agrees with the upstream
-repository's newest release tag. Both `/releases/latest` and `/tags` were checked
-for every repository.
+This table is point-in-time evidence from the most recent verification recorded for
+each row. Dependabot and the blocking repository gates own freshness after that
+point; the table is not a floating claim about future releases. Both
+`/releases/latest` and `/tags` were checked for every repository.
 
 | Package                   | Selected  | PyPI released        | Upstream newest tag | Plan table | Delta   |
 |---------------------------|-----------|----------------------|---------------------|------------|---------|
-| `uv` (CLI, not a dep)     | `0.12.2`  | 2026-08-05T19:20:52Z | `0.12.2`            | `0.12.1`   | upgrade |
-| `uv-build` / `uv_build`   | `0.12.2`  | 2026-08-05T19:20:38Z | `0.12.2`            | `0.12.1`   | upgrade |
+| `uv` (bootstrap group)    | `0.12.3`  | 2026-08-07T16:32:18Z | `0.12.3`            | `0.12.1`   | upgrade |
+| `uv-build` / `uv_build`   | `0.12.3`  | 2026-08-07T16:32:07Z | `0.12.3`            | `0.12.1`   | upgrade |
 | `jsonschema`              | `4.26.0`  | 2026-01-07T13:41:05Z | `v4.26.0`           | missing    | add     |
-| `prek`                    | `0.4.12`  | 2026-08-03T11:28:09Z | `v0.4.12`           | `0.4.12`   | none    |
+| `prek`                    | `0.4.13`  | 2026-08-10T08:53:52Z | `v0.4.13`           | `0.4.12`   | upgrade |
 | `pydoclint`               | `0.9.1`   | 2026-07-03T08:17:07Z | `0.9.1`             | `0.9.1`    | none    |
 | `pyright`                 | `1.1.411` | 2026-06-25T02:14:04Z | `v1.1.411`          | `1.1.411`  | none    |
 | `pytest`                  | `9.1.1`   | 2026-06-19T10:58:31Z | `9.1.1`             | `9.1.1`    | none    |
 | `pytest-cov`              | `7.1.0`   | 2026-03-21T20:11:14Z | `v7.1.0`            | `7.1.0`    | none    |
 | `pytest-mock`             | `3.15.1`  | 2025-09-16T16:37:25Z | `v3.15.1`           | `3.15.1`   | none    |
 | `pytest-xdist`            | `3.8.0`   | 2025-07-01T13:30:56Z | `v3.8.0`            | `3.8.0`    | none    |
-| `ruff`                    | `0.16.1`  | 2026-07-30T19:36:13Z | `0.16.1`            | `0.16.1`   | none    |
+| `ruff`                    | `0.16.2`  | 2026-08-07T13:30:14Z | `0.16.2`            | `0.16.1`   | upgrade |
 | `bandit`                  | `1.9.4`   | 2026-02-25T06:44:13Z | `1.9.4`             | `1.9.4`    | none    |
 | `python-semantic-release` | `10.6.1`  | 2026-07-06T06:14:33Z | `v10.6.1`           | `10.6.1`   | none    |
 | `twine`                   | `7.0.0`   | 2026-07-27T15:58:59Z | `7.0.0`             | `6.2.0`    | upgrade |
+
+The build-system declaration retains the tested compatible floor
+`uv_build>=0.12.2,<0.13`; isolated builds select current 0.12.3 within that range.
+This is a compatibility range, not a stale exact tool pin.
 
 `pytest-dev/pytest-cov` publishes no GitHub releases; its newest tag `v7.1.0`
 matches PyPI. `microsoft/pyright` release `1.1.411` matches the
@@ -106,7 +112,7 @@ tag list was used only to confirm the selected version exists as a tag.
   `uv_build>=0.12.2,<0.13`.
 - Your call: approved by the operator on 2026-08-06.
 
-### uv: 0.12.2 -> 0.12.3 deferred
+### uv: 0.12.2 -> 0.12.3
 
 - Risk level: ROUTINE
 - Verified via: PyPI, GitHub `/releases/latest`, GitHub `/tags`, the official
@@ -114,15 +120,70 @@ tag list was used only to confirm the selected version exists as a tag.
 - What changed: CPython 3.13.15 availability, performance improvements, preview
   workspace and cache-output features, and documentation corrections.
 - Breaking changes: none reported for this repository's commands or build path.
-- Migration steps: update every workflow `UV_VERSION` value and the
-  python-semantic-release build pin together, regenerate `uv.lock`, and rerun the
-  complete local, CI, and artifact gates.
-- Security advisories: none found for the selected 0.12.2 version through OSV.
-- Recommendation: retain 0.12.2 while repairing the failed 1.0.0 release. The
-  patch release contains no fix required by this incident, and changing the build
-  tool would add unrelated variance to release recovery.
-- Your call: deferral approved by the operator on 2026-08-10. Handle 0.12.3 as a
-  separate routine dependency update after publication.
+- Migration steps: add one exact `uv` requirement to the non-default `bootstrap`
+  dependency group, lock it, make every setup-uv step read `uv.lock`, and make
+  semantic release bootstrap from that same lock entry. Remove every duplicated
+  workflow and build-command version.
+- Security advisories: none found for `uv@0.12.3` or `uv-build@0.12.3` through
+  the OSV batch scan.
+- Recommendation: select 0.12.3 and make its future updates Dependabot-owned.
+  Keep the update commit-visible and locked instead of installing an unreviewed
+  floating latest version during CI.
+- Your call: approved by the operator on 2026-08-10 after publication. Routine
+  updates must merge automatically when every required gate passes.
+
+### coverage, prek, and ruff refresh
+
+- Risk level: ROUTINE
+- Verified via: PyPI, GitHub `/releases/latest`, exact tags, official release
+  notes, a full `uv lock --upgrade`, and OSV on 2026-08-10.
+- What changed: coverage 7.15.4 fixes unsafe filename encoding in HTML and LCOV
+  reports and adds Python 3.15 wheels; prek 0.4.13 adds managed-tool and hook
+  execution capabilities plus Node and Git-environment fixes; ruff 0.16.2 fixes
+  one false positive and adjusts editor-server formatting registration.
+- Breaking changes: none reported for this repository's commands or rules.
+- Migration steps: refresh the lock, move the tested prek and ruff lower bounds,
+  and update the matching frozen ruff-pre-commit revision.
+- Security advisories: none found for `coverage@7.15.4`, `prek@0.4.13`, or
+  `ruff@0.16.2` through the OSV batch scan.
+- Recommendation: select all three updates. The complete local and CI gates own
+  compatibility.
+- Your call: approved by the operator's always-current dependency policy on
+  2026-08-10.
+
+### google/osv-scanner-action: 2.3.8 -> 2.5.0
+
+- Risk level: ROUTINE
+- Verified via: GitHub `/releases/latest`, GitHub `/tags`, the immutable tag ref,
+  official release notes, and OSV on 2026-08-10.
+- What changed: the reusable workflow updates OSV-Scanner to 2.5.0, SHA-pins its
+  internal download action, adds runner selection, gates reusable outputs, and
+  addresses zizmor and Go toolchain behavior.
+- Breaking changes: none reported for `scan-args` or `fail-on-vuln`.
+- Migration steps: replace the reusable-workflow SHA and tag comment together.
+- Security advisories: none found for the old or selected Action version through
+  the OSV batch scan.
+- Recommendation: select v2.5.0 because it improves the same immutable-action and
+  workflow-security properties enforced by this repository.
+- Your call: approved by the operator's always-current dependency policy on
+  2026-08-10.
+
+### Dependabot pre-commit immutable-pin behavior
+
+Verified on 2026-08-10 against Dependabot Core commit
+[`ca7ed1894942e52e6d9aa6f213988a2e3afdaec6`](https://github.com/dependabot/dependabot-core/commit/ca7ed1894942e52e6d9aa6f213988a2e3afdaec6).
+The current
+[pre-commit file updater](https://github.com/dependabot/dependabot-core/blob/ca7ed1894942e52e6d9aa6f213988a2e3afdaec6/pre_commit/lib/dependabot/pre_commit/file_updater.rb)
+replaces the old Git ref with the new ref and updates a recognized version comment
+on the same line. Its
+[regression test](https://github.com/dependabot/dependabot-core/blob/ca7ed1894942e52e6d9aa6f213988a2e3afdaec6/pre_commit/spec/dependabot/pre_commit/file_updater_spec.rb)
+starts with a 40-character SHA and `# frozen: v4.4.0`, then requires both the SHA
+and comment to advance together.
+
+Finding: the repository's existing immutable pre-commit form is directly supported
+by the current updater. A routine Dependabot pull request should preserve the
+`scripts/check_pins.py` contract without a separate `prek autoupdate` repair. The
+blocking pin gate remains the runtime proof for every actual pull request.
 
 ### jsonschema: missing record corrected
 

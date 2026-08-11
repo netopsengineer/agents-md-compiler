@@ -30,9 +30,6 @@ concurrency:
   group: auto-fix-${{ inputs.branch }}
   cancel-in-progress: false
 
-env:
-  UV_VERSION: "0.12.2"
-
 jobs:
   fix:
     name: apply fixing hooks
@@ -85,7 +82,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           enable-cache: true
           cache-dependency-glob: uv.lock
           # The validation run triggered by this job's push owns any cache write.

@@ -26,9 +26,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Must match the uv pin in [tool.semantic_release].build_command so the release
-  # path and the gate resolve identically.
-  UV_VERSION: "0.12.2"
   # The floor is declared in pyproject.toml and mirrored in this validation
   # workflow; release.yml derives it directly from the declaration (PY-PROJ-002).
   PYTHON_FLOOR: "3.14"
@@ -59,7 +56,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           # This is the single Linux cache writer for push, pull request, and
           # manual validation. Concurrent jobs restore this key without saving it.
           enable-cache: true
@@ -113,7 +110,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           enable-cache: true
           cache-dependency-glob: uv.lock
           save-cache: false
@@ -190,7 +187,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           # The smoke install explicitly disables uv's package cache below.
           enable-cache: false
 
@@ -283,7 +280,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           enable-cache: true
           cache-dependency-glob: uv.lock
           # Linux restores the gate's cache. Each other matrix platform is its
@@ -320,7 +317,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # frozen: v9.0.0
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: uv.lock
           # This isolated prerelease resolution must not read or write the stable
           # locked-environment cache.
           enable-cache: false

@@ -191,21 +191,31 @@ unreachable under test, and a reviewer decision recorded in the pull request.
 
 Never write a dependency version, hook revision, or action SHA from memory.
 
-- Re-resolve every version live before changing dependency or workflow
-  configuration.
-- Check both `/releases/latest` and `/tags` for every upstream repository; they
-  diverge.
+- For an agent-authored dependency change, re-resolve every version live. Check
+  both `/releases/latest` and `/tags`, dereference annotated tags, run an advisory
+  scan for every exact selection, and record the findings and date in
+  `docs/dependency-verification.md`.
+- Let Dependabot own routine version changes through the configured daily
+  multi-ecosystem group and seven-day supply-chain cooldown. A Dependabot pull
+  request may merge without rewriting point-in-time verification prose only when
+  every required locked, test, type, artifact, platform, pin, dependency-review,
+  and advisory gate passes for its current head.
+- Queue automatic merge only for an open pull request owned by
+  `dependabot[bot]`, targeting `main`, sourced from this repository on a
+  `dependabot/` branch, and bound to its current head SHA. Never check out or
+  execute pull-request content in the privileged queue workflow.
+- If any required Dependabot check fails, leave the pull request open. Update the
+  project for compatibility or wait for a coordinated upstream update; never
+  bypass, downgrade, or remove the failing gate to merge it.
 - Pin every GitHub Action and hook repository to an immutable commit SHA with a
-  comment naming the verified tag. Dereference annotated tags to the commit.
-- Run an advisory scan for every exact selected version and record the result.
-- Record every finding in `docs/dependency-verification.md` with source URLs and
-  the verification date. Workflow and hook pin evidence, effective job
-  permissions, and the reason each conditional gate is blocking or advisory live
-  in `docs/ci-evidence.md`.
+  comment naming the verified tag.
+- Record workflow and hook pin evidence, effective job permissions, and the reason
+  each conditional gate is blocking or advisory in `docs/ci-evidence.md`.
 - `scripts/check_pins.py` runs in the aggregate gate and fails the build when any
-  workflow `uses:` or third-party hook `rev:` is not an immutable commit SHA
-  carrying its tag. Do not satisfy it by adding a comment to a mutable tag;
-  re-resolve the SHA.
+  workflow or dependency-automation boundary loses immutable pins, canonical
+  `uv` ownership, lockstep grouping, cooldowns, or auto-merge identity and head
+  checks. Do not satisfy it by adding a comment to a mutable tag; re-resolve the
+  SHA.
 
 ## Packaging invariants
 
