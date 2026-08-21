@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           # Audit rather than block: this job resolves Python, PyPI, npm, and Go
           # toolchains through the hook runner, and an allowlist that lags any one
@@ -54,7 +54,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # frozen: v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
         with:
           version-file: uv.lock
           # This is the single Linux cache writer for push, pull request, and
@@ -99,7 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -108,7 +108,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # frozen: v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
         with:
           version-file: uv.lock
           enable-cache: true
@@ -174,7 +174,7 @@ jobs:
         # this step runs only where it is fully supported and is skipped elsewhere
         # rather than pretending to enforce something it cannot.
         if: runner.os == 'Linux'
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -185,7 +185,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # frozen: v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
         with:
           version-file: uv.lock
           # The smoke install explicitly disables uv's package cache below.
@@ -269,7 +269,7 @@ jobs:
     steps:
       - name: Harden the runner
         if: runner.os == 'Linux'
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -278,7 +278,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # frozen: v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
         with:
           version-file: uv.lock
           enable-cache: true
@@ -306,7 +306,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -315,7 +315,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # frozen: v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
         with:
           version-file: uv.lock
           # This isolated prerelease resolution must not read or write the stable
