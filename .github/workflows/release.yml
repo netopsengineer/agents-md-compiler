@@ -104,7 +104,7 @@ jobs:
       recovery_commit: ${{ steps.resolve.outputs.recovery_commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -254,7 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -263,7 +263,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # frozen: v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
         with:
           version-file: uv.lock
           # validate.yml owns the shared Linux cache write. Release jobs restore
@@ -295,7 +295,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -363,7 +363,7 @@ jobs:
       commit: ${{ steps.prepared.outputs.commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -521,7 +521,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -531,7 +531,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # frozen: v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
         with:
           version-file: uv.lock
           enable-cache: true
@@ -574,7 +574,7 @@ jobs:
       commit: ${{ steps.identity.outputs.commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -587,7 +587,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # frozen: v10.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
         with:
           version-file: uv.lock
           # The release gate and validate gate already populated this key. The
@@ -697,7 +697,7 @@ jobs:
       id-token: write # required to mint the OIDC token PyPI exchanges for upload rights
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           # Audit rather than block. Block mode needs an explicit allowlist, and the
           # full set of destinations used by Trusted Publishing and PEP 740
@@ -764,7 +764,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
@@ -898,7 +898,7 @@ jobs:
       contents: write # required to create the release tag and the GitHub release
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # frozen: v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
         with:
           egress-policy: audit
 
