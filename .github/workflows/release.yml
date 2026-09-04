@@ -392,7 +392,7 @@ jobs:
 
       - name: Run python-semantic-release
         id: psr
-        uses: python-semantic-release/python-semantic-release@39dd2052f2ce8282a5d932c31d58a2ca06d2550e # frozen: v10.6.1
+        uses: python-semantic-release/python-semantic-release@9a026e9303981c866c3425723009becb2437c757 # frozen: v10.6.2
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           # Stage-only mode avoids the action's tagless commit_sha output defect.

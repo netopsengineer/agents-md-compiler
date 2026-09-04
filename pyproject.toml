@@ -74,7 +74,7 @@ source-exclude = [
 # from uv.lock, while the separate group keeps uv itself out of the default
 # development environment.
 bootstrap = [
-    "uv==0.12.6",
+    "uv==0.12.7",
 ]
 # Every version below was resolved live on 2026-08-10 from PyPI plus the upstream
 # GitHub release and tag endpoints, and every one returned no OSV advisory. See
