@@ -104,7 +104,7 @@ jobs:
       recovery_commit: ${{ steps.resolve.outputs.recovery_commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           egress-policy: audit
 
@@ -254,7 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           egress-policy: audit
 
@@ -295,7 +295,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           egress-policy: audit
 
@@ -363,7 +363,7 @@ jobs:
       commit: ${{ steps.prepared.outputs.commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           egress-policy: audit
 
@@ -521,7 +521,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           egress-policy: audit
 
@@ -574,7 +574,7 @@ jobs:
       commit: ${{ steps.identity.outputs.commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           egress-policy: audit
 
@@ -697,7 +697,7 @@ jobs:
       id-token: write # required to mint the OIDC token PyPI exchanges for upload rights
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           # Audit rather than block. Block mode needs an explicit allowlist, and the
           # full set of destinations used by Trusted Publishing and PEP 740
@@ -764,7 +764,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           egress-policy: audit
 
@@ -898,7 +898,7 @@ jobs:
       contents: write # required to create the release tag and the GitHub release
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # frozen: v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
         with:
           egress-policy: audit
 
