@@ -54,7 +54,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # frozen: v10.1.0
         with:
           version-file: uv.lock
           # This is the single Linux cache writer for push, pull request, and
@@ -108,7 +108,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # frozen: v10.1.0
         with:
           version-file: uv.lock
           enable-cache: true
@@ -185,7 +185,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # frozen: v10.1.0
         with:
           version-file: uv.lock
           # The smoke install explicitly disables uv's package cache below.
@@ -278,7 +278,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # frozen: v10.1.0
         with:
           version-file: uv.lock
           enable-cache: true
@@ -315,7 +315,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # frozen: v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # frozen: v10.1.0
         with:
           version-file: uv.lock
           # This isolated prerelease resolution must not read or write the stable
