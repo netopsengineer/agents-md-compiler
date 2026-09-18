@@ -100,7 +100,7 @@ repos:
   # [dependency-groups] so the hook and `uv run ruff check .` enforce the same
   # rule set; otherwise the local and CI verdicts can diverge.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: 321478e58f4938179c6b86e4ddfa923d1547a49b # frozen: v0.16.6
+    rev: e8f7d69b957a30acb2c875078d5fd012de24b64c # frozen: v0.16.7
     hooks:
       - id: ruff-check
         args: ["--fix", "--show-fixes"]
@@ -120,7 +120,7 @@ repos:
         args: ["--config", "pyproject.toml"]
 
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: 474b7be9073c7a02f95c2825c2db8ed05835844e # frozen: v1.1.413
+    rev: 1aa6dfeb849ae43fb6f16fc17228bcbd358a19c3 # frozen: v1.1.414
     hooks:
       - id: pyright
         pass_filenames: false
