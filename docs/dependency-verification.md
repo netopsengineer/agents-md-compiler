@@ -509,6 +509,38 @@ and harden-runner ranges ending at or before 2.16.0. The selected versions
 Decision: retain every existing Action version and immutable SHA. The release
 correction changes policy and action inputs only, with no dependency migration.
 
+## Transitive security repair, 2026-10-06
+
+Dependabot pull requests [#39](https://github.com/netopsengineer/agents-md-compiler/pull/39)
+and [#40](https://github.com/netopsengineer/agents-md-compiler/pull/40) were already
+queued for native auto-merge. Their required OSV gate correctly rejected the
+development lock's `urllib3==2.7.0`; the ordinary validation gates passed.
+The [failing OSV job](https://github.com/netopsengineer/agents-md-compiler/actions/runs/37271786772/job/111640143608)
+reported three fixable advisories:
+
+- [GHSA-8988-9cw3-xx77](https://github.com/urllib3/urllib3/security/advisories/GHSA-8988-9cw3-xx77):
+  HTTPS proxy TLS configuration could be ignored or overridden
+- [GHSA-gh4c-6fx4-qh6g](https://github.com/urllib3/urllib3/security/advisories/GHSA-gh4c-6fx4-qh6g):
+  chunked Deflate streaming could enter an infinite loop
+- [GHSA-vxq7-64xx-v4gw](https://github.com/urllib3/urllib3/security/advisories/GHSA-vxq7-64xx-v4gw):
+  chunk-size lines could cause unbounded memory buffering
+
+Live verification on 2026-10-06 checked the upstream
+[`releases/latest` endpoint](https://api.github.com/repos/urllib3/urllib3/releases/latest)
+and tag refs. The latest stable release was
+[`2.8.0`](https://github.com/urllib3/urllib3/releases/tag/2.8.0), published on
+2026-09-15, which fixes all three advisories and is past the seven-day cooldown.
+Its [signed annotated tag](https://api.github.com/repos/urllib3/urllib3/git/tags/2f980b433a89399ad5efd72e7f6da04e667ea287)
+dereferences to commit `b1d30ab61fe0db8f11092805e8c5ac43e091064a`.
+
+Regenerated the lock with the pull request's pinned uv 0.12.19 using
+`uv lock --upgrade-package urllib3`. Only urllib3's version and its two artifact
+records changed; the sdist and wheel hashes match the upstream release assets.
+`uv sync --locked` succeeded and `uv audit --frozen` reported no known
+vulnerabilities or adverse project statuses in the 54 locked packages.
+The package still has no runtime dependencies. No workflow, required status
+check, protection, advisory suppression, or merge policy changed.
+
 ## Public identity
 
 | Check                                         | Method                                                          | Result                                      |
