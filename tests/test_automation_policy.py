@@ -6,10 +6,12 @@ from pathlib import Path
 import pytest
 
 from scripts.check_pins import (
+    check_advisory_workflow,
     check_dependabot,
     check_dependabot_auto_merge,
     check_project_uv_ownership,
     check_release_workflow,
+    check_scanner_image,
     check_setup_uv_workflow,
 )
 
@@ -262,3 +264,61 @@ def test_rejects_a_floating_uv_bootstrap_requirement(tmp_path: Path) -> None:
     findings = check_project_uv_ownership(config)
 
     assert any("exactly one exact" in finding for finding in findings)
+
+
+def test_advisory_gate_preserves_required_context_and_raw_evidence() -> None:
+    assert (
+        check_advisory_workflow(REPOSITORY_ROOT / ".github/workflows/security-scan.yml")
+        == []
+    )
+    assert (
+        check_scanner_image(REPOSITORY_ROOT / ".github/security-scanner/Dockerfile")
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        "--all-packages --format=json --recursive ./",
+        "scan_exit=$?",
+        "--fail-on-vuln=true",
+        "--config=.github/osv-scanner-empty.toml",
+        "name: osv-scanner (repository and lockfile) / osv-scan",
+    ],
+)
+def test_advisory_gate_rejects_missing_safety_controls(
+    tmp_path: Path, fragment: str
+) -> None:
+    original = (REPOSITORY_ROOT / ".github/workflows/security-scan.yml").read_text()
+    path = tmp_path / "security-scan.yml"
+    path.write_text(original.replace(fragment, "removed", 1))
+    assert check_advisory_workflow(path)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "FROM ghcr.io/google/osv-scanner:v2.6.0",
+        "FROM attacker/scanner@sha256:" + "a" * 64,
+        "FROM ghcr.io/google/osv-scanner:v2.6.0@sha256:" + "a" * 64 + "\nRUN something",
+    ],
+)
+def test_scanner_image_rejects_mutability_and_extra_instructions(
+    tmp_path: Path, content: str
+) -> None:
+    path = tmp_path / "Dockerfile"
+    path.write_text(content)
+    assert check_scanner_image(path)
+
+
+def test_advisory_gate_comments_cannot_satisfy_enforcement(tmp_path: Path) -> None:
+    original = (REPOSITORY_ROOT / ".github/workflows/security-scan.yml").read_text()
+    path = tmp_path / "security-scan.yml"
+    path.write_text(
+        original.replace(
+            "          python3 scripts/advisory_policy.py",
+            "          # python3 scripts/advisory_policy.py",
+        )
+    )
+    assert check_advisory_workflow(path)

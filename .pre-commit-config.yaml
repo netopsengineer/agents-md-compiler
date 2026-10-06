@@ -152,6 +152,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: advisory-policy
+        name: check bounded advisory policy
+        language: system
+        entry: uv run python scripts/advisory_policy.py
+        pass_filenames: false
+        always_run: true
+
   # -- Tests -------------------------------------------------------------
   # The full suite runs as a gate hook so `prek run` covers pytest alongside
   # lint, type, and security. language: system uses this project's own uv

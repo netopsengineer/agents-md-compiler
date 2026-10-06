@@ -12,9 +12,9 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly, so an advisory published against an unchanged lock is still found.
+    # Daily, so new advisories, fixes, and expired exceptions are found promptly.
     # Minute chosen off the hour to avoid the top-of-hour scheduling crowd.
-    - cron: "37 6 * * 1"
+    - cron: "37 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -48,7 +48,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
           # Push and pull-request runs restore the validate gate's cache. The
-          # weekly schedule is the sole writer when no validation run accompanies it.
+          # daily schedule is the sole writer when no validation run accompanies it.
           save-cache: ${{ github.event_name == 'schedule' }}
 
       - name: Synchronize the locked environment
@@ -110,27 +110,97 @@ jobs:
         # generated file that never reached a commit.
         run: ./gitleaks dir --redact --verbose --no-banner .
 
-  # OSV.dev covers the resolved dependency set recorded in uv.lock. uv.lock has been
-  # a supported OSV-Scanner lockfile since scanner v2.0.0, so this is the blocking
-  # advisory gate for this project (PY-SEC-006).
-  #
-  # Upstream recommends the reusable workflow over calling the scanner action
-  # directly, because the action's own behavior may change in a patch release. The
-  # reusable workflow declares its own permissions, including security-events: write
-  # for the SARIF upload, which requires a public repository or GitHub Advanced
-  # Security. Repository visibility is set in Phase 14.
+  # Scan once, preserving its exact status and complete unsuppressed evidence.
+  # The policy adapter accepts only explicit exact-scope, unexpired no-fix risks.
   osv-scanner:
-    name: osv-scanner (repository and lockfile)
+    # Preserve the existing required status context without changing the ruleset.
+    name: osv-scanner (repository and lockfile) / osv-scan
+    runs-on: ubuntu-latest
     permissions:
-      actions: read # the reusable workflow reads run metadata to attach the SARIF
-      contents: read # required to check out the tree being scanned
-      security-events: write # required to upload the SARIF to code scanning
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # frozen: v2.6.0
-    with:
-      scan-args: |-
-        --recursive
-        ./
-      fail-on-vuln: true
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # frozen: v2.21.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate the exception policy and scanner boundary
+        run: |
+          python3 scripts/advisory_policy.py
+          python3 scripts/check_pins.py
+
+      - name: Scan once with the pinned official CLI
+        id: scan
+        run: |
+          set -euo pipefail
+          image="$(awk '$1 == "FROM" { print $2 }' .github/security-scanner/Dockerfile)"
+          if docker run --rm --read-only --cap-drop=ALL \
+            --security-opt=no-new-privileges --tmpfs /tmp:rw,nosuid,nodev \
+            --mount "type=bind,src=$PWD,dst=/github/workspace,readonly" \
+            --workdir /github/workspace "$image" \
+            --config=.github/osv-scanner-empty.toml \
+            --all-packages --format=json --recursive ./ \
+            > raw-osv-results.json 2> raw-osv.log; then
+            scan_exit=0
+          else
+            scan_exit=$?
+          fi
+          cat raw-osv.log
+          printf '%s\n' "$scan_exit" > raw-osv-exit.txt
+          echo "exit=$scan_exit" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce bounded risks against that exact result
+        id: policy
+        env:
+          SCAN_EXIT: ${{ steps.scan.outputs.exit }}
+        run: |
+          python3 scripts/advisory_policy.py \
+            --report raw-osv-results.json --scan-exit "$SCAN_EXIT" \
+            --output adjudicated-osv-results.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve blocking findings for the native reporter
+        if: ${{ always() }}
+        run: |
+          if [ ! -f adjudicated-osv-results.json ] && [ -s raw-osv-results.json ]; then
+            cp raw-osv-results.json adjudicated-osv-results.json
+          fi
+
+      - name: Report the adjudicated result without rescanning
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        uses: google/osv-scanner-action/osv-reporter-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc # frozen: v2.6.0
+        with:
+          scan-args: |-
+            --new=adjudicated-osv-results.json
+            --output=results.sarif
+            --gh-annotations=false
+            --fail-on-vuln=true
+
+      - name: Upload raw evidence and native SARIF
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # frozen: v7.0.1
+        with:
+          name: OSV Scanner SARIF file
+          path: |
+            raw-osv-results.json
+            raw-osv.log
+            raw-osv-exit.txt
+            adjudicated-osv-results.json
+            results.sarif
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Upload to code scanning
+        if: ${{ !cancelled() && hashFiles('results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # frozen: v4.37.6
+        with:
+          sarif_file: results.sarif
 
   # `uv audit` reads the same lock as the OSV job through uv's own advisory client.
   # It is advisory here, not because a finding is acceptable, but because uv 0.12.3

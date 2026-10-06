@@ -1,7 +1,7 @@
 ---
 # yaml-language-server: $schema=https://json.schemastore.org/dependabot-2.0.json
 
-# Dependency maintenance for the three ecosystems this repository actually uses.
+# Dependency maintenance for the four ecosystems this repository actually uses.
 #
 # The consolidated commit prefix is `chore(deps)` on purpose. python-semantic-release
 # parses conventional commits on main, and a `fix:` or `feat:` prefix on a routine
@@ -57,6 +57,16 @@ updates:
   # is exactly the form `check-pins` requires.
   - package-ecosystem: github-actions
     directory: "/"
+    patterns: ["*"]
+    multi-ecosystem-group: all-dependencies
+    cooldown:
+      default-days: 7
+
+  # -- Exact scanner container -------------------------------------------
+  # Native Docker updates preserve the digest pin and keep the CLI maintained in
+  # the same daily group as the OSV reporter Action.
+  - package-ecosystem: docker
+    directory: "/.github/security-scanner"
     patterns: ["*"]
     multi-ecosystem-group: all-dependencies
     cooldown:
