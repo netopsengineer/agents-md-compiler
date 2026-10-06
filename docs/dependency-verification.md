@@ -574,3 +574,34 @@ was created and configured under that owner on 2026-08-06.
 | One-off PEP 740 verifier version and advisory status live-checked | pass on 2026-08-07                              |
 
 State reached: `DEPENDENCIES_VERIFIED`.
+
+## OSV CLI execution boundary verified 2026-10-06
+
+The scanner remains at upstream version `v2.6.0`; only its invocation changes so
+CI can preserve the exact numeric exit code and adjudicate one complete raw report.
+GitHub's latest release and tags endpoints both identified `v2.6.0`; the lightweight
+tag resolved directly to `e840a6e8adb14b7777c78e26cfbf6e2abc1d1fc6`.
+
+- Official image: `ghcr.io/google/osv-scanner:v2.6.0`
+- OCI multi-platform manifest digest:
+  `sha256:afd838850ac1a0fcc15ff4a041dc9ba11123c3f0d2666217a5f0fcf9222b55fa`
+- The digest returned by GHCR matched SHA-256 computed over the response body
+- Linux amd64 child manifest:
+  `sha256:b8cc6dc8805bb77fca4ada69c07cfef5a1e07784c22830e0bd49a440aa27d9fe`
+- Local official CLI binary checksum matched both the release checksum file and
+  GitHub release asset digest:
+  `ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108`
+
+Sources: [release](https://github.com/google/osv-scanner/releases/tag/v2.6.0),
+[official Dockerfile](https://github.com/google/osv-scanner/blob/v2.6.0/Dockerfile),
+[output and exit-code contract](https://google.github.io/osv-scanner/output/),
+and [native configuration scope](https://google.github.io/osv-scanner/configuration/).
+
+OSV's live API returned no advisories for the selected Go module version. The
+native reporter remains at its existing `v2.6.0` Action pin. SARIF upload retains
+the reusable workflow's existing `github/codeql-action` `v4.37.6` pin,
+`5595ccaf912efad79be6eef63a5619ff05969be3`, now directly visible to Dependabot.
+Its annotated tag was dereferenced and matched; OSV returned no advisory for that
+commit. The latest release endpoint refers to a CodeQL bundle; the tags endpoint
+also showed newer Action `v4.38.2`. This change deliberately preserves the existing
+reporting implementation rather than bundling an unrelated reporter upgrade.

@@ -586,3 +586,69 @@ step can safely consume the stage-only result before any remote write.
 These controls are not release gates under the recorded decisions. Required local,
 pull request, protected-main, artifact, publication, provenance, public-install, and
 semantic no-op gates are green.
+
+## Bounded advisory policy (2026-10-06)
+
+The canonical decision lives in `.github/advisory-exceptions.json`, initially with
+an empty `exceptions` array. No finding is accepted by this change. The required
+status context remains `osv-scanner (repository and lockfile) / osv-scan`, with
+unchanged job permissions and no ruleset changes.
+
+Native OSV ignores match an advisory and its aliases across packages. They cannot
+express the required advisory, package, exact locked version, and no-fixed-release
+conjunction. The official CLI therefore scans the full repository recursively once
+with an explicitly empty config and `--all-packages`. Its raw JSON, log, and actual
+exit code are retained. `scripts/advisory_policy.py` makes the authoritative decision
+against those same bytes. It rejects operational exit codes, exit/report mismatch,
+missing locked packages, malformed or inconsistent reports, unrelated findings,
+stale exceptions, expired entries, and upstream evidence of any fixed release.
+
+Only after every raw finding passes does the adapter write a separate reporter view
+without the explicitly accepted findings. The native reporter still uses
+`--fail-on-vuln=true`; it never rescans and receives no broad ignore list. If policy
+validation fails, the raw findings are preserved for reporting and the job remains
+failed. Accepted risk is printed with its advisory, exact package/version, expiry,
+rationale, no-fix evidence, and upstream reference in the job log and summary. The
+unmodified raw report is retained in the same artifact as SARIF. A passing status
+means no unaccepted findings, not that accepted vulnerabilities were fixed. SARIF presents the actionable,
+unaccepted findings; the raw report and summary remain the accepted-risk record.
+
+The official CLI container is pinned by version and immutable OCI manifest digest
+in `.github/security-scanner/Dockerfile`. The runner reads this single `FROM` value;
+it does not build or execute Dockerfile instructions. It runs with a read-only
+repository mount and root filesystem, no capabilities, no extra credentials, and
+no-new-privileges. Dependabot's Docker ecosystem joins the existing daily lockstep
+group and seven-day cooldown. This creates no separate version-maintenance process.
+The security schedule now runs daily, so unchanged locks are rechecked for new
+advisories, newly fixed releases, and exception expiry.
+
+The existing Dependabot queue already verifies bot identity, repository, branch,
+non-draft state, and exact head before queuing native auto-merge. Required checks
+continue to decide acceptance. Its permissions and merge behavior are unchanged.
+CODEOWNERS routes review; the current main ruleset requires zero approving reviews
+and does not enforce code-owner approval. The wording now reflects that distinction.
+
+### Exception review and removal
+
+Each entry must contain exactly `advisory` (an exact GHSA), `ecosystem` (`PyPI`),
+`package`, `version`, `expiresAt` (an exclusive UTC timestamp), `reason`,
+`noFixReason`, and `upstream` (an HTTPS reference). Package and version must match
+`uv.lock` exactly. The raw OSV finding must identify the same root lockfile and
+package, and its affected-package evidence must contain no fixed-release event.
+Aliases are permitted only for that exact package/version, never for unrelated
+findings. Every other advisory remains blocking at every severity.
+
+Prefer upgrading or removing the dependency. Adding an exception is a reviewed,
+explicit risk decision; automation must never invent one, broaden it, renew it, or
+remove the gate to clear a backlog. Explain why the exposure is bounded and why no
+upstream fixed release is available. Choose a short expiry and link upstream work.
+Remove the entry when a fixed release appears or the package/version changes. A
+stale entry fails rather than silently becoming permanent configuration. Existing
+dependency review remains independently blocking, including for newly introduced
+vulnerabilities; an OSV exception does not waive that separate gate.
+
+The offline policy validator runs in the aggregate local gate. Regression tests
+cover exact scope, aliases, expiry, stale entries, malformed/partial reports,
+unknown fields, group consistency, numeric scanner failures, and newly fixed
+upstream evidence. Workflow mutation tests protect the required context,
+recursive scan, empty config, raw evidence, and reporter failure behavior.

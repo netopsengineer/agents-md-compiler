@@ -1,0 +1,2 @@
+# Raw evidence must never suppress a package, advisory, alias, or severity.
+# This explicit config overrides all automatically discovered OSV configs.

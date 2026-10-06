@@ -335,6 +335,68 @@ def check_dependabot_auto_merge(path: Path) -> list[str]:
     return findings
 
 
+def check_scanner_image(path: Path) -> list[str]:
+    """Require one official immutable OSV image and no Dockerfile instructions."""
+    active = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if len(active) == 1 and re.fullmatch(
+        r"FROM ghcr\.io/google/osv-scanner:v[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}",
+        active[0],
+    ):
+        return []
+    return [
+        f"{path}: require one official OSV version+digest FROM and no other instructions"
+    ]
+
+
+def check_advisory_workflow(path: Path) -> list[str]:
+    """Keep the existing required check bound to a single fail-closed raw scan."""
+    active = "\n".join(
+        line
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    block = _workflow_jobs(active).get("osv-scanner", "")
+    required = (
+        "name: osv-scanner (repository and lockfile) / osv-scan",
+        "python3 scripts/advisory_policy.py",
+        "python3 scripts/check_pins.py",
+        ".github/security-scanner/Dockerfile",
+        "docker run --rm --read-only --cap-drop=ALL",
+        "--config=.github/osv-scanner-empty.toml",
+        "--all-packages --format=json --recursive ./",
+        "scan_exit=$?",
+        '--report raw-osv-results.json --scan-exit "$SCAN_EXIT"',
+        "--output adjudicated-osv-results.json",
+        "--new=adjudicated-osv-results.json",
+        "--fail-on-vuln=true",
+        "raw-osv-results.json",
+        "raw-osv-exit.txt",
+        "results.sarif",
+    )
+    findings = [
+        f"{path}: missing advisory gate control {fragment!r}"
+        for fragment in required
+        if fragment not in block
+    ]
+    forbidden = (
+        "continue-on-error:",
+        "--ignore",
+        "--experimental-exclude",
+        "--call-analysis",
+        "--fail-on-vuln=false",
+    )
+    findings.extend(
+        f"{path}: forbidden advisory gate bypass {fragment!r}"
+        for fragment in forbidden
+        if fragment in block
+    )
+    return findings
+
+
 def check_project_uv_ownership(path: Path) -> list[str]:
     """Require one exact uv pin and lock-derived release bootstrapping.
 
@@ -598,6 +660,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     for path in workflows:
         findings += check_workflow(path)
         findings += check_setup_uv_workflow(path)
+        if path.name == "security-scan.yml":
+            findings += check_advisory_workflow(path)
+            findings += check_scanner_image(
+                path.parent.parent / "security-scanner" / "Dockerfile"
+            )
         if path.name == "release.yml":
             findings += check_release_workflow(path)
         if path.name in {"dependabot-auto-merge.yml", "dependabot-auto-merge.yaml"}:
