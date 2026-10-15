@@ -38,4 +38,4 @@
 /scripts/                   @netopsengineer
 /.github/advisory-exceptions.json @netopsengineer
 /.github/osv-scanner-empty.toml @netopsengineer
-/.github/security-scanner/ @netopsengineer
+/ci/security-scanner/ @netopsengineer

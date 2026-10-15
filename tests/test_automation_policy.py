@@ -271,10 +271,7 @@ def test_advisory_gate_preserves_required_context_and_raw_evidence() -> None:
         check_advisory_workflow(REPOSITORY_ROOT / ".github/workflows/security-scan.yml")
         == []
     )
-    assert (
-        check_scanner_image(REPOSITORY_ROOT / ".github/security-scanner/Dockerfile")
-        == []
-    )
+    assert check_scanner_image(REPOSITORY_ROOT / "ci/security-scanner/Dockerfile") == []
 
 
 @pytest.mark.parametrize(
@@ -322,3 +319,17 @@ def test_advisory_gate_comments_cannot_satisfy_enforcement(tmp_path: Path) -> No
         )
     )
     assert check_advisory_workflow(path)
+
+
+def test_scanner_manifest_has_one_dependabot_owned_location() -> None:
+    """Keep the hosted updater and scan bound to the same supported manifest."""
+    scanner = REPOSITORY_ROOT / "ci/security-scanner/Dockerfile"
+    assert scanner.is_file()
+    assert not (REPOSITORY_ROOT / ".github/security-scanner/Dockerfile").exists()
+    config = (REPOSITORY_ROOT / ".github/dependabot.yml").read_text()
+    docker = config.split("  - package-ecosystem: docker\n", 1)[1]
+    assert 'directory: "/ci/security-scanner"' in docker
+    assert "multi-ecosystem-group: all-dependencies" in docker
+    assert "default-days: 7" in docker
+    owners = (REPOSITORY_ROOT / ".github/CODEOWNERS").read_text()
+    assert "/ci/security-scanner/ @netopsengineer" in owners

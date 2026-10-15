@@ -614,7 +614,7 @@ means no unaccepted findings, not that accepted vulnerabilities were fixed. SARI
 unaccepted findings; the raw report and summary remain the accepted-risk record.
 
 The official CLI container is pinned by version and immutable OCI manifest digest
-in `.github/security-scanner/Dockerfile`. The runner reads this single `FROM` value;
+in `ci/security-scanner/Dockerfile`. The runner reads this single `FROM` value;
 it does not build or execute Dockerfile instructions. It runs with a read-only
 repository mount and root filesystem, no capabilities, no extra credentials, and
 no-new-privileges. Dependabot's Docker ecosystem joins the existing daily lockstep
