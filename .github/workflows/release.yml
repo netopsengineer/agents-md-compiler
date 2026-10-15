@@ -104,7 +104,7 @@ jobs:
       recovery_commit: ${{ steps.resolve.outputs.recovery_commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -254,7 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -295,7 +295,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -363,7 +363,7 @@ jobs:
       commit: ${{ steps.prepared.outputs.commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -521,7 +521,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -574,7 +574,7 @@ jobs:
       commit: ${{ steps.identity.outputs.commit }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -664,7 +664,7 @@ jobs:
         run: uv run python scripts/inspect_dist.py inventory dist --output dist/inventory.json
 
       - name: Upload the release artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # frozen: v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # frozen: v7.0.2
         with:
           name: release-dist
           path: |
@@ -697,7 +697,7 @@ jobs:
       id-token: write # required to mint the OIDC token PyPI exchanges for upload rights
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           # Audit rather than block. Block mode needs an explicit allowlist, and the
           # full set of destinations used by Trusted Publishing and PEP 740
@@ -707,7 +707,7 @@ jobs:
           egress-policy: audit
 
       - name: Download the built artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # frozen: v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # frozen: v8.0.2
         with:
           name: release-dist
           path: dist
@@ -764,7 +764,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -898,7 +898,7 @@ jobs:
       contents: write # required to create the release tag and the GitHub release
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
