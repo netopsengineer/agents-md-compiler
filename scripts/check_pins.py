@@ -364,7 +364,7 @@ def check_advisory_workflow(path: Path) -> list[str]:
         "name: osv-scanner (repository and lockfile) / osv-scan",
         "python3 scripts/advisory_policy.py",
         "python3 scripts/check_pins.py",
-        ".github/security-scanner/Dockerfile",
+        "ci/security-scanner/Dockerfile",
         "docker run --rm --read-only --cap-drop=ALL",
         "--config=.github/osv-scanner-empty.toml",
         "--all-packages --format=json --recursive ./",
@@ -663,7 +663,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if path.name == "security-scan.yml":
             findings += check_advisory_workflow(path)
             findings += check_scanner_image(
-                path.parent.parent / "security-scanner" / "Dockerfile"
+                path.parent.parent.parent / "ci" / "security-scanner" / "Dockerfile"
             )
         if path.name == "release.yml":
             findings += check_release_workflow(path)

@@ -139,7 +139,7 @@ jobs:
         id: scan
         run: |
           set -euo pipefail
-          image="$(awk '$1 == "FROM" { print $2 }' .github/security-scanner/Dockerfile)"
+          image="$(awk '$1 == "FROM" { print $2 }' ci/security-scanner/Dockerfile)"
           if docker run --rm --read-only --cap-drop=ALL \
             --security-opt=no-new-privileges --tmpfs /tmp:rw,nosuid,nodev \
             --mount "type=bind,src=$PWD,dst=/github/workspace,readonly" \
