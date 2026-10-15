@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           # Audit rather than block: this job resolves Python, PyPI, npm, and Go
           # toolchains through the hook runner, and an allowlist that lags any one
@@ -99,7 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -147,7 +147,7 @@ jobs:
             dist/*.whl direct-wheel/*.whl
 
       - name: Upload the distributions
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # frozen: v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # frozen: v7.0.2
         with:
           name: validate-dist
           path: |
@@ -174,7 +174,7 @@ jobs:
         # this step runs only where it is fully supported and is skipped elsewhere
         # rather than pretending to enforce something it cannot.
         if: runner.os == 'Linux'
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -192,7 +192,7 @@ jobs:
           enable-cache: false
 
       - name: Download the built distributions
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # frozen: v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # frozen: v8.0.2
         with:
           name: validate-dist
           path: incoming
@@ -269,7 +269,7 @@ jobs:
     steps:
       - name: Harden the runner
         if: runner.os == 'Linux'
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
@@ -306,7 +306,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # frozen: v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
         with:
           egress-policy: audit
 
