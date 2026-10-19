@@ -174,7 +174,7 @@ jobs:
 
       - name: Report the adjudicated result without rescanning
         if: ${{ always() && steps.scan.outcome == 'success' }}
-        uses: google/osv-scanner-action/osv-reporter-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc # frozen: v2.6.0
+        uses: google/osv-scanner-action/osv-reporter-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # frozen: v2.7.0
         with:
           scan-args: |-
             --new=adjudicated-osv-results.json

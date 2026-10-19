@@ -372,7 +372,7 @@ jobs:
         # A protected branch rejects a push from GITHUB_TOKEN, and a personal access
         # token would be long-lived and broadly scoped. This token is minted per run,
         # scoped to this repository, and limited to the permissions listed.
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # frozen: v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # frozen: v3.3.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
