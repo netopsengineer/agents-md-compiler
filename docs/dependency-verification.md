@@ -605,3 +605,50 @@ Its annotated tag was dereferenced and matched; OSV returned no advisory for tha
 commit. The latest release endpoint refers to a CodeQL bundle; the tags endpoint
 also showed newer Action `v4.38.2`. This change deliberately preserves the existing
 reporting implementation rather than bundling an unrelated reporter upgrade.
+
+## CA trust security repair, 2026-10-21
+
+The scheduled [security scan](https://github.com/netopsengineer/agents-md-compiler/actions/runs/39598472222)
+correctly rejected `certifi==2026.7.22` and `uv==0.12.24`. Both advisories concern
+compromised emSign intermediate CA keys and trusted root certificates, which can
+allow an on-path attacker to impersonate HTTPS services:
+
+- [certifi advisory](https://github.com/advisories/GHSA-6q48-6c7w-9gw2):
+  `PYSEC-2026-4320` / `GHSA-6q48-6c7w-9gw2`, fixed by `2026.10.19`.
+- [uv advisory](https://github.com/astral-sh/uv/security/advisories/GHSA-hq85-5cpj-mr62):
+  `PYSEC-2026-4321` / `GHSA-hq85-5cpj-mr62`, fixed by `0.13.4`.
+
+Live verification on 2026-10-21 checked both upstream release and tag endpoints,
+exact PyPI release metadata, and the OSV batch API for both selected versions.
+The exact-version OSV queries returned no advisories for either selection.
+
+- `uv==0.13.4`: the [latest release](https://api.github.com/repos/astral-sh/uv/releases/latest)
+  and [tags](https://api.github.com/repos/astral-sh/uv/tags) agreed on `0.13.4`.
+  Its [tag](https://api.github.com/repos/astral-sh/uv/git/refs/tags/0.13.4)
+  resolves directly to commit `7456b60bc6bc348e13e06e3691bf08e78d3aef54`.
+  The [release notes](https://github.com/astral-sh/uv/releases/tag/0.13.4)
+  explicitly recommend immediate upgrade for this CA incident.
+- `certifi==2026.10.19`: the [latest release endpoint](https://api.github.com/repos/certifi/python-certifi/releases/latest)
+  returns 404 because this upstream does not publish GitHub Releases.
+  The [tags endpoint](https://api.github.com/repos/certifi/python-certifi/tags)
+  includes `2026.10.19`; its [annotated tag](https://api.github.com/repos/certifi/python-certifi/git/tags/39e296825d323aa1c8e998ffd9cc57fe22514a24)
+  dereferences to commit `662df63d7906df66f1f07c0751a3dfe9da14d914`.
+  Version `2026.10.18` removed all emSign roots; `2026.10.19` retains that fix
+  while restoring unaffected roots, matching the reviewed advisory's fixed floor.
+
+The [uv PyPI metadata](https://pypi.org/pypi/uv/0.13.4/json) and
+[certifi PyPI metadata](https://pypi.org/pypi/certifi/2026.10.19/json) confirm the
+published versions and artifact SHA-256 values. Updated the canonical bootstrap
+pin and regenerated `uv.lock` with patched uv using
+`uv lock --upgrade-package certifi==2026.10.19 --upgrade-package uv==0.13.4`.
+Only those two package versions changed. The runtime remains dependency-free.
+This is a targeted security repair, not a routine dependency refresh; the existing
+Dependabot cooldown and all workflow, pin, advisory, and merge gates are unchanged.
+No advisory exception or scanner suppression was added.
+
+Validation used patched uv `0.13.4` and Python `3.14.8`. Locked synchronization,
+`uv lock --check`, and `uv audit --frozen` passed; the latter reported no known
+vulnerabilities or adverse project statuses in 54 packages. All 780 tests passed
+at 100 percent line and branch coverage, as did strict typing, Ruff, pydoclint,
+Bandit, package metadata and contents checks, direct/sdist wheel comparison,
+and installed-wheel smoke tests in an isolated home with `CODEX_HOME` unset.
