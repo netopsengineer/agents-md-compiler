@@ -652,3 +652,32 @@ cover exact scope, aliases, expiry, stale entries, malformed/partial reports,
 unknown fields, group consistency, numeric scanner failures, and newly fixed
 upstream evidence. Workflow mutation tests protect the required context,
 recursive scan, empty config, raw evidence, and reporter failure behavior.
+
+## Bot-merge reconciliation (2026-10-23)
+
+GitHub-token auto-merges do not trigger push workflows. PR #52 passed its PR
+gates and the scheduled main security scan, but did not create main validation
+or release runs. Validation now also runs daily at 03:17 UTC with its existing
+checks and read-only permissions unchanged.
+
+A separate read-only release reconciliation runs at 03:47 UTC and supports manual
+dispatch. It checks trusted main, verifies that the declared stable version has
+an ancestor release tag, compares all published package inputs against that tag,
+and requires public PyPI wheel and sdist evidence. It downloads bounded artifact
+bytes only from the fixed HTTPS PyPI file host and verifies their SHA256 hashes
+without installing, extracting, or executing them. Missing tags, registry errors,
+yanked files, or changed package inputs fail visibly for release review. This is
+a backstop, not an automatic publisher or a claim that scheduled jobs run in order.
+An in-progress intentional release can temporarily fail reconciliation and must
+be rechecked after publication.
+
+The existing release workflow is unchanged: automatic publication still requires
+the exact push to affect package inputs; repository-only publication still needs
+an explicit release operation. No permissions, settings, required checks,
+advisory exceptions, or release-environment protections changed. The new workflow
+reuses the already verified immutable checkout and runner-hardening pins.
+
+Release impact: only CI, scripts, tests, and this evidence changed. Package source,
+build metadata, and runtime dependencies are unchanged from v1.0.1. No package
+release is warranted. Regression tests cover changed package inputs, malformed
+or missing registry evidence, yanked files, duplicate files, and unchanged gates.
