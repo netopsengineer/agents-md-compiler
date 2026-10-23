@@ -681,3 +681,26 @@ Release impact: only CI, scripts, tests, and this evidence changed. Package sour
 build metadata, and runtime dependencies are unchanged from v1.0.1. No package
 release is warranted. Regression tests cover changed package inputs, malformed
 or missing registry evidence, yanked files, duplicate files, and unchanged gates.
+
+### Stable OSV analysis identity (2026-10-23)
+
+The original reusable OSV job was named `osv-scan`. Its pinned upload action
+`github/codeql-action@5595ccaf912efad79be6eef63a5619ff05969be3` derives
+its analysis key from workflow path and job name, then appends `/` for the SARIF
+automation ID when there is no matrix. The repository's replacement job is named
+`osv-scanner`, which created a different default category on October 6. Six old
+urllib3 2.7.0 findings stayed open in the original category even though current
+main's complete scan of urllib3 2.8.0 has no findings.
+
+The uploader now explicitly preserves the verified original category
+`.github/workflows/security-scan.yml:osv-scan/`. It uploads the same complete,
+authoritatively adjudicated SARIF report, with no filtered alerts, new exceptions,
+manual dismissals, analysis deletion, or security settings changes. This permits
+GitHub to mark genuinely fixed historical findings resolved and keeps future
+uploads stable if the job is renamed again. Raw evidence and blocking policy
+remain unchanged. The newer category had no open findings at migration.
+
+Source identity derivation: the pinned action's `src/api-client.ts` functions
+`getAnalysisKey` and `computeAutomationID`, plus the old reusable workflow at
+`google/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc`.
+This changes reporting identity only, not package inputs or release eligibility.
