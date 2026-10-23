@@ -1,0 +1,46 @@
+---
+# Read-only backstop for bot-token merges that suppress push-triggered releases.
+# This never publishes or changes the existing release workflow's eligibility.
+name: release reconciliation
+
+on:
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    name: reconcile published package inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        with:
+          # Always inspect trusted current main, including a manual branch choice.
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the currently published package
+        run: |
+          set -euo pipefail
+          echo "Reconciling trusted main commit $(git rev-parse HEAD)"
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a stable package version." >&2
+            exit 1
+          fi
+          tag="refs/tags/v${version}"
+          git merge-base --is-ancestor "$tag" HEAD
+          git diff --name-only --no-renames -z "${tag}..HEAD" >"$RUNNER_TEMP/package-paths"
+          curl --fail --silent --show-error --max-time 30 \
+            "https://pypi.org/pypi/agents-md-compiler/${version}/json" \
+            >"$RUNNER_TEMP/package-registry.json"
+          python3 -m scripts.reconcile_release --version "$version" \
+            --paths "$RUNNER_TEMP/package-paths" \
+            --registry "$RUNNER_TEMP/package-registry.json"

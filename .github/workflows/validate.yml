@@ -9,6 +9,9 @@
 name: validate
 
 on:
+  # GITHUB_TOKEN merges do not emit push-triggered workflows. Recheck main daily.
+  schedule:
+    - cron: "17 3 * * *"
   push:
     branches: [main]
   pull_request:
