@@ -201,6 +201,9 @@ jobs:
         uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # frozen: v4.39.0
         with:
           sarif_file: results.sarif
+          # Preserve the original reusable job's identity so clean reports resolve
+          # its historical findings instead of stranding them in an old category.
+          category: .github/workflows/security-scan.yml:osv-scan/
 
   # `uv audit` reads the same lock as the OSV job through uv's own advisory client.
   # It is advisory here, not because a finding is acceptable, but because uv 0.12.3

@@ -333,3 +333,13 @@ def test_scanner_manifest_has_one_dependabot_owned_location() -> None:
     assert "default-days: 7" in docker
     owners = (REPOSITORY_ROOT / ".github/CODEOWNERS").read_text()
     assert "/ci/security-scanner/ @netopsengineer" in owners
+
+
+def test_osv_upload_preserves_historical_analysis_identity() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/security-scan.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "category: .github/workflows/security-scan.yml:osv-scan/" in workflow
+    assert "sarif_file: results.sarif" in workflow
+    assert "--fail-on-vuln=true" in workflow
+    assert "--new=adjudicated-osv-results.json" in workflow
