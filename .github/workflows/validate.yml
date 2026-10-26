@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # frozen: v2.22.2
         with:
           # Audit rather than block: this job resolves Python, PyPI, npm, and Go
           # toolchains through the hook runner, and an allowlist that lags any one
@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # frozen: v2.22.2
         with:
           egress-policy: audit
 
@@ -177,7 +177,7 @@ jobs:
         # this step runs only where it is fully supported and is skipped elsewhere
         # rather than pretending to enforce something it cannot.
         if: runner.os == 'Linux'
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # frozen: v2.22.2
         with:
           egress-policy: audit
 
@@ -272,7 +272,7 @@ jobs:
     steps:
       - name: Harden the runner
         if: runner.os == 'Linux'
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # frozen: v2.22.2
         with:
           egress-policy: audit
 
@@ -309,7 +309,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # frozen: v2.22.2
         with:
           egress-policy: audit
 

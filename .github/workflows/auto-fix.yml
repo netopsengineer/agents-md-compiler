@@ -38,7 +38,7 @@ jobs:
       contents: write # required to push the mechanical fix commit to the target branch
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # frozen: v2.22.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # frozen: v2.22.2
         with:
           egress-policy: audit
 
