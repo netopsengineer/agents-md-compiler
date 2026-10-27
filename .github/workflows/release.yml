@@ -743,7 +743,7 @@ jobs:
         run: rm dist/inventory.json
 
       - name: Publish through Trusted Publishing
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # frozen: v1.14.2
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # frozen: v1.14.3
         with:
           packages-dir: dist
           # PEP 740 provenance. Defaults to true in this version; stated explicitly
