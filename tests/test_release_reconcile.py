@@ -87,10 +87,10 @@ def test_reconciliation_is_read_only_and_does_not_change_release_policy() -> Non
     validate = (root / ".github/workflows/validate.yml").read_text()
     release = (root / ".github/workflows/release.yml").read_text()
     assert 'cron: "17 3 * * *"' in validate
-    assert 'cron: "47 3 * * *"' in workflow
+    assert 'cron: "47 * * * *"' in workflow
     assert "contents: read" in workflow
     assert ": write" not in workflow
-    assert "ref: main" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
     assert "persist-credentials: false" in workflow
     assert "fetch-depth: 0" in workflow
     assert 'git merge-base --is-ancestor "$tag" HEAD' in workflow
