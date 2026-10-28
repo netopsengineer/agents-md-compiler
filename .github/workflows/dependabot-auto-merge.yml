@@ -18,9 +18,10 @@ concurrency:
 
 jobs:
   queue:
+    if: github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'
     name: queue verified update
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
@@ -39,7 +40,7 @@ jobs:
 
           mapfile -t numbers < <(
             gh api --paginate \
-              "repos/${REPOSITORY}/pulls?state=open&per_page=100" \
+              "repos/${REPOSITORY}/pulls?state=open&sort=created&direction=asc&per_page=100" \
               --jq '.[] | select(.user.login == "dependabot[bot]") | .number'
           )
           if [ "${#numbers[@]}" -eq 0 ]; then
@@ -63,7 +64,7 @@ jobs:
 
             if [ "$(jq -r '.auto_merge != null' <<<"$pull")" = "true" ]; then
               echo "Pull request ${number} is already queued for auto-merge."
-              continue
+              break
             fi
 
             gh pr merge "$number" \
@@ -71,4 +72,57 @@ jobs:
               --auto \
               --squash \
               --match-head-commit "$head_sha"
+            # Serialize the queue: later updates wait for this exact head.
+            break
           done
+
+      - name: Load trusted queue controller
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TRUSTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Schedule/manual-main events supply trusted immutable code. Never
+          # download a PR branch, artifact, command, or dependency here.
+          gh api "repos/${REPOSITORY}/contents/.github/scripts/dependency-queue.mjs?ref=${TRUSTED_SHA}" \
+            --jq .content | base64 --decode > "$RUNNER_TEMP/dependency-queue.mjs"
+
+      - name: Plan one stale dependency branch refresh
+        id: plan
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: main
+        run: node "$RUNNER_TEMP/dependency-queue.mjs" plan
+
+      - name: Mint the existing repository-scoped refresh token
+        if: steps.plan.outputs.refresh == 'true'
+        id: refresh-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # frozen: v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-metadata: read
+
+      - name: Merge trusted main into the verified dependency branch
+        if: steps.plan.outputs.refresh == 'true'
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+          GH_WRITE_TOKEN: ${{ steps.refresh-token.outputs.token }}
+          DEFAULT_BRANCH: main
+        run: node "$RUNNER_TEMP/dependency-queue.mjs" apply
+
+      - name: Verify main after the queue pass
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # repository_dispatch is intentionally not suppressed for GITHUB_TOKEN.
+          # Receivers use their own default-branch event SHA, never client data.
+          gh api --method POST "repos/${REPOSITORY}/dispatches" \
+            -f event_type=dependency-main-verification

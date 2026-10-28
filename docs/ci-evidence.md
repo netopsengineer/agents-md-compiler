@@ -704,3 +704,30 @@ Source identity derivation: the pinned action's `src/api-client.ts` functions
 `getAnalysisKey` and `computeAutomationID`, plus the old reusable workflow at
 `google/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc`.
 This changes reporting identity only, not package inputs or release eligibility.
+
+## Dependency coordination and main verification (2026-10-28)
+
+The existing half-hourly dependency queue now considers the oldest update first.
+It refreshes an eligible stale branch using a two-parent merge and a normal,
+non-force push. The existing Release App is scoped to this repository with the
+same contents-write and metadata-read permissions as release preparation. It
+never merges protected main or approves a review. GitHub's existing protected
+merge remains bound to the current PR head and all required checks.
+
+The queue loads only its immutable trusted default-branch controller; it never
+checks out or executes PR files. An exact-head authentic validation provenance
+check, repeated state checks, and normal fast-forward enforcement protect against
+concurrent branch edits. Conflicts or missing provenance stop the refresh.
+
+The queue sends a named repository dispatch using its existing contents-write
+GITHUB_TOKEN. This event is not suppressed by GitHub. Receivers ignore client
+payloads and execute only their immutable default-branch event SHA. Read-only
+validation follows queue completion and has an hourly recovery trigger
+for late merges or missed events. Only a successful trusted-main run for the
+identical commit and workflow can suppress redundant automatic verification.
+PR, push, and manual validation always run the full gate. An unavailable metadata
+read runs the full gate without requesting extra permissions. Reconciliation
+follows the same queue dispatch and retains an hourly recovery check; its
+checkout is the immutable event SHA, never triggering PR content or an artifact.
+The original daily full validation is retained independently of deduplication.
+Release publication policy is unchanged.

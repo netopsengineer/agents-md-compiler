@@ -5,14 +5,17 @@ name: release reconciliation
 
 on:
   schedule:
-    - cron: "47 3 * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
+  repository_dispatch:
+    types: [dependency-main-verification]
 
 permissions:
   contents: read
 
 jobs:
   reconcile:
+    if: github.ref == 'refs/heads/main'
     name: reconcile published package inputs
     runs-on: ubuntu-latest
     steps:
@@ -22,8 +25,8 @@ jobs:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
         with:
-          # Always inspect trusted current main, including a manual branch choice.
-          ref: main
+          # Inspect the immutable trusted event SHA; manual runs are main-only.
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Verify the currently published package

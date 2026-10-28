@@ -165,6 +165,13 @@ repos:
   # environment, so the coverage floor in pyproject.toml applies here too.
   - repo: local
     hooks:
+      - id: maintenance-tests
+        name: maintenance automation tests
+        language: system
+        entry: node --test .github/scripts/main-verification.test.mjs .github/scripts/dependency-queue.test.mjs
+        pass_filenames: false
+        always_run: true
+
       - id: pytest
         name: pytest
         language: system

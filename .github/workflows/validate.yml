@@ -9,9 +9,13 @@
 name: validate
 
 on:
-  # GITHUB_TOKEN merges do not emit push-triggered workflows. Recheck main daily.
+  # GITHUB_TOKEN merges suppress push events. Queue completion checks main promptly;
+  # hourly recovery also catches late merges and missed events.
   schedule:
     - cron: "17 3 * * *"
+    - cron: "17 0-2,4-23 * * *"
+  repository_dispatch:
+    types: [dependency-main-verification]
   push:
     branches: [main]
   pull_request:
@@ -35,10 +39,52 @@ env:
   FORCE_COLOR: "1"
 
 jobs:
+  evidence:
+    name: select exact-main verification
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.decide.outputs.required }}
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # frozen: v2.22.2
+        with:
+          egress-policy: audit
+      - name: Always run requested and pull-request gates
+        if: github.event_name != 'schedule' && github.event_name != 'repository_dispatch'
+        id: full
+        run: echo "required=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # frozen: v7.0.1
+        if: github.event_name == 'schedule' || github.event_name == 'repository_dispatch'
+        with:
+          # These events identify the trusted default-branch commit, never the
+          # triggering PR's head or downloaded artifacts.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reuse only successful evidence for the same main commit
+        if: github.event_name == 'schedule' || github.event_name == 'repository_dispatch'
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          WORKFLOW: validate.yml
+        run: node .github/scripts/main-verification.mjs
+      - name: Record decision
+        id: decide
+        env:
+          REQUIRED: ${{ steps.full.outputs.required || steps.lookup.outputs.required }}
+        run: |
+          test "$REQUIRED" = true || test "$REQUIRED" = false
+          echo "required=$REQUIRED" >> "$GITHUB_OUTPUT"
+
   # 1. locked synchronization, 2. the complete prek gate, 3. test and coverage
   # evidence, 4. strict type checking. These share one locked environment because
   # each depends on the same resolved interpreter and dependency set.
   gate:
+    needs: evidence
+    if: needs.evidence.outputs.required == 'true'
     name: gate (locked, prek, tests, types)
     runs-on: ubuntu-latest
     steps:
@@ -65,6 +111,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
           save-cache: true
+
+      - name: Test maintenance automation
+        run: node --test .github/scripts/*.test.mjs
 
       - name: Synchronize the locked environment
         run: uv sync --locked
@@ -98,6 +147,8 @@ jobs:
   # 5. package build and metadata validation, 6. wheel-content inspection,
   # 8. building a wheel from the sdist and comparing package contents.
   artifacts:
+    needs: evidence
+    if: needs.evidence.outputs.required == 'true'
     name: artifacts (build, metadata, contents)
     runs-on: ubuntu-latest
     steps:
@@ -164,8 +215,9 @@ jobs:
   # Windows smoke coverage. The wheel is the exact artifact the artifacts job built,
   # so repository layout cannot mask a packaging defect (PY-TEST-007).
   smoke:
+    if: needs.evidence.outputs.required == 'true'
     name: smoke (${{ matrix.os }})
-    needs: artifacts
+    needs: [evidence, artifacts]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -263,6 +315,8 @@ jobs:
   # because byte-exact output across line-ending and filesystem differences is the
   # property being claimed.
   golden:
+    needs: evidence
+    if: needs.evidence.outputs.required == 'true'
     name: golden (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -304,6 +358,8 @@ jobs:
   # be reclassified as required and added to the branch-protection check set, not
   # left standing as a permanently ignorable signal.
   prerelease:
+    needs: evidence
+    if: needs.evidence.outputs.required == 'true'
     name: prerelease signal (3.15, advisory)
     runs-on: ubuntu-latest
     continue-on-error: true
