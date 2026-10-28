@@ -35,6 +35,8 @@ workdir=$(cd "$workdir" && pwd)
 export XDG_STATE_HOME="$workdir/state"
 export HOME="$workdir/home"
 export USERPROFILE="$HOME"
+# init honors CODEX_HOME ahead of HOME; never inherit a real operator target.
+unset CODEX_HOME
 mkdir -p "$HOME/.codex"
 cd "$workdir"
 
