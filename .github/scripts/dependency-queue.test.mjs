@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {BOT, RELEASE_APP, VALIDATE_WORKFLOW, GitHub, proven, eligible, gitRunner, plan, refresh, samePlan} from './dependency-queue.mjs';
+import {BOT, RELEASE_APP, VALIDATE_WORKFLOW, GitHub, proven, eligible, gitRunner, plan, refresh, verifyRefresh, samePlan} from './dependency-queue.mjs';
 
 const repo = 'netopsengineer/agents-md-compiler';
 const a = 'a'.repeat(40), b = 'b'.repeat(40), c = 'c'.repeat(40), d = 'd'.repeat(40);
@@ -127,4 +127,39 @@ test('plan comparison binds every target field',()=>{
   for(const key of Object.keys(wanted))assert.equal(Boolean(samePlan(wanted,{...wanted,[key]:'changed'})),false);
   assert.equal(Boolean(samePlan(wanted,null)),false);
   assert.throws(()=>new GitHub('../repo','token'),/Bad repository/);
+});
+
+test('post-push verification tolerates only bounded original-head projection lag', async () => {
+  const {api, current} = fixture(); let waits = 0;
+  assert.equal(await verifyRefresh(api, wanted, d, async ms => {
+    assert.equal(ms, 2000); waits++; current.head.sha = d;
+  }), d);
+  assert.equal(waits, 1);
+  current.head.sha = a; waits = 0;
+  await assert.rejects(() => verifyRefresh(api, wanted, d, async () => {waits++;}), /bounded verification/);
+  assert.equal(waits, 5);
+});
+test('post-push verification fails immediately for races, identity changes, and API errors', async () => {
+  for (const mode of ['third', 'closed', 'branch', 'number', 'main', 'denied']) {
+    const {api, current} = fixture(); const get = api.get; let waits = 0;
+    if (mode === 'third') current.head.sha = c;
+    if (mode === 'closed') current.state = 'closed';
+    if (mode === 'branch') current.head.ref = 'dependabot/other';
+    if (mode === 'number') current.number = 2;
+    if (mode === 'main') api.get = async path => path.startsWith('git/ref/') ? {object: {sha: c}} : get(path);
+    if (mode === 'denied') api.get = async () => {throw new Error('GitHub read failed: 403');};
+    await assert.rejects(() => verifyRefresh(api, wanted, d, async () => {waits++;}));
+    assert.equal(waits, 0);
+  }
+});
+test('post-push verification rejects changes arising during a projection wait', async () => {
+  for (const mode of ['third', 'main']) {
+    const {api, current} = fixture(); const get = api.get; let waits = 0;
+    await assert.rejects(() => verifyRefresh(api, wanted, d, async () => {
+      waits++;
+      if (mode === 'third') current.head.sha = c;
+      else api.get = async path => path.startsWith('git/ref/') ? {object: {sha: c}} : get(path);
+    }), mode === 'third' ? /head changed/ : /Main changed/);
+    assert.equal(waits, 1);
+  }
 });
