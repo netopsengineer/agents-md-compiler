@@ -52,30 +52,15 @@ def bundle_file(tmp_path: Path, rendered: RenderedBundle) -> Path:
     return path
 
 
-def test_string_extraction_is_exhaustive_and_order_independent() -> None:
-    document = {
-        "b": ["one", {"c": "two", "d": [{"e": "three"}]}],
-        "a": "four",
-        "n": 5,
-        "t": True,
-        "z": None,
-    }
-    found = set(codex.extract_strings(document))
-    assert {"one", "two", "three", "four"} <= found
-    # Keys are yielded too, so a marker used as a key could not hide.
-    assert {"a", "b", "c", "d", "e", "n", "t", "z"} <= found
+@pytest.mark.parametrize("document", [{"items": []}, 7, None, "solo", {1: "value"}])
+def test_unsupported_envelopes_are_not_searched(document: object) -> None:
+    with pytest.raises(CodexVerificationError) as raised:
+        codex.extract_instruction_evidence(document)
+    assert raised.value.problem is CodexProblem.UNSUPPORTED_EVIDENCE
 
 
-def test_string_extraction_handles_scalars_and_empty_containers() -> None:
-    assert list(codex.extract_strings(7)) == []
-    assert list(codex.extract_strings(None)) == []
-    assert list(codex.extract_strings([])) == []
-    assert list(codex.extract_strings({})) == []
-    assert list(codex.extract_strings("solo")) == ["solo"]
-
-
-def test_string_extraction_ignores_non_string_keys() -> None:
-    assert list(codex.extract_strings({1: "value"})) == ["value"]
+def test_empty_response_array_has_no_instruction_evidence() -> None:
+    assert codex.extract_instruction_evidence([]) == ()
 
 
 def test_required_markers_cover_the_header_and_every_module(
@@ -154,15 +139,15 @@ def test_an_html_comment_is_never_chosen_as_a_sentinel(tmp_path: Path) -> None:
         assert not sentinel.startswith("<!--")
 
 
-def test_a_module_with_no_unique_long_line_is_refused(tmp_path: Path) -> None:
+def test_a_module_with_no_unique_long_line_has_no_legacy_sentinel(
+    tmp_path: Path,
+) -> None:
     terse = make_bundle(
         tmp_path,
         module_texts=(("core", "# A\n\nshort\n"), ("python", "# B\n\nalso short\n")),
     )
     write_lock(terse)
-    with pytest.raises(CodexVerificationError) as raised:
-        codex.content_sentinels(compiled_of(terse).rendered)
-    assert raised.value.problem is CodexProblem.SENTINEL_ABSENT
+    assert codex.content_sentinels(compiled_of(terse).rendered) == ()
 
 
 def test_a_missing_executable_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -323,7 +308,7 @@ def test_verification_reports_a_missing_header(
     )
     with pytest.raises(CodexVerificationError) as raised:
         codex.verify_rendered_visibility(rendered)
-    assert raised.value.problem is CodexProblem.HEADER_ABSENT
+    assert raised.value.problem is CodexProblem.SELECTED_BUNDLE_MISSING
 
 
 def test_verification_reports_a_missing_module_marker(
@@ -337,8 +322,8 @@ def test_verification_reports_a_missing_module_marker(
     )
     with pytest.raises(CodexVerificationError) as raised:
         codex.verify_rendered_visibility(rendered)
-    assert raised.value.problem is CodexProblem.MARKER_ABSENT
-    assert "module-end" in str(raised.value)
+    assert raised.value.problem is CodexProblem.MALFORMED_BOUNDARIES
+    assert "boundaries" in str(raised.value)
 
 
 def test_verification_reports_a_duplicated_marker(
@@ -352,8 +337,8 @@ def test_verification_reports_a_duplicated_marker(
     )
     with pytest.raises(CodexVerificationError) as raised:
         codex.verify_rendered_visibility(rendered)
-    assert raised.value.problem is CodexProblem.MARKER_DUPLICATED
-    assert "appears 2 times" in str(raised.value)
+    assert raised.value.problem is CodexProblem.DUPLICATE_SELECTED_BUNDLE
+    assert codex.unverified(raised.value).selected_bundle_occurrences == 2
 
 
 def test_verification_reports_a_truncated_tail(
@@ -370,8 +355,8 @@ def test_verification_reports_a_truncated_tail(
     with pytest.raises(CodexVerificationError) as raised:
         codex.verify_rendered_visibility(rendered)
     assert raised.value.problem in {
-        CodexProblem.MARKER_ABSENT,
-        CodexProblem.SENTINEL_ABSENT,
+        CodexProblem.SELECTED_BUNDLE_MISSING,
+        CodexProblem.MALFORMED_BOUNDARIES,
     }
 
 
@@ -389,7 +374,7 @@ def test_verification_reports_a_missing_sentinel(
     install_mock_codex(tmp_path, monkeypatch, mode="ok", bundle=path)
     with pytest.raises(CodexVerificationError) as raised:
         codex.verify_rendered_visibility(rendered)
-    assert raised.value.problem is CodexProblem.SENTINEL_ABSENT
+    assert raised.value.problem is CodexProblem.MALFORMED_BOUNDARIES
 
 
 def test_verification_reports_oversized_output(
@@ -426,7 +411,7 @@ def test_the_probe_directory_holds_no_instruction_file(
     )
     capability = codex.detect_capability()
     document, command, probe_cwd = codex.inspect_prompt_input(capability, expected=())
-    assert isinstance(document, dict)
+    assert isinstance(document, list)
     assert command[-1] == codex.PROBE_PROMPT
     assert probe_cwd.name.startswith(codex.PROBE_DIRECTORY_PREFIX)
     # The temporary directory is removed with the context, so nothing persists.
@@ -514,18 +499,22 @@ def test_an_unverified_summary_keeps_known_capability(
     assert result.capability_present is True
 
 
-def test_recorded_prompt_input_shapes_are_searchable(rendered: RenderedBundle) -> None:
-    # A recorded shape, not a live probe: proves the search does not depend on the
-    # nesting or key order Codex happens to use today.
-    recorded = {
-        "input": [
-            {"content": [{"text": "unrelated preamble"}]},
-            {"content": [{"text": rendered.data.decode("utf-8")}]},
-        ]
-    }
-    strings = tuple(codex.extract_strings(json.loads(json.dumps(recorded))))
-    for marker in codex.required_markers(rendered.modules):
-        assert sum(item.count(marker) for item in strings) == 1
+def test_synthetic_prompt_input_shape_preserves_instruction_bytes(
+    rendered: RenderedBundle,
+) -> None:
+    synthetic = [
+        {
+            "type": "message",
+            "role": "developer",
+            "content": [
+                {"type": "input_text", "text": rendered.data.decode("utf-8")},
+            ],
+        }
+    ]
+    fields = codex.extract_instruction_evidence(json.loads(json.dumps(synthetic)))
+    assert len(fields) == 1
+    assert fields[0].data == rendered.data
+    assert fields[0].location.json_path == "$[0].content[0].text"
 
 
 def test_markers_are_built_from_locked_identity() -> None:

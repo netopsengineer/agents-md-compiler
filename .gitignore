@@ -435,3 +435,4 @@ docs/*
 !docs/cli-contract.md
 !docs/security-model.md
 !docs/target-agnostic-agents-md-execution-plan.md
+!docs/runtime-bundle-verification-execution-plan.md

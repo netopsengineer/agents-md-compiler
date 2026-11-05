@@ -59,6 +59,35 @@ the fixture bytes are stable.
 
 ## `codex/`
 
-Recorded `codex debug prompt-input` JSON shapes plus the mock executable's
-scripted responses. No fixture here was captured from an authenticated session and
-none contains policy content beyond the fixture modules above.
+Synthetic `codex debug prompt-input` response-item arrays and the mock
+executable's scripted responses. No fixture is an authenticated capture or proof
+of successful integration with a locally installed Codex host. Runtime tests use
+fixture or temporary test-only module content, never personal policy sources.
+
+The evidence adapter follows the producer representation inspected on 2026-11-05
+at `openai/codex` tag `rust-v0.166.0`:
+
+| Producer source                                                                                                                 | Inspected blob                             | Representation established                                                        |
+|---------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------|-----------------------------------------------------------------------------------|
+| [Prompt-input construction](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/prompt_debug.rs)               | `8d1af241c6d2117c3e8326733e3a3bf036b76ae6` | A root response-item list, not an object envelope                                 |
+| [Serialized response items](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/models.rs)                 | `351f45c03c943fac9bc9d2f195a5b927fa844ba2` | Message roles and typed `input_text`, `input_image`, and `input_audio` content    |
+| [AGENTS user instructions](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/context/user_instructions.rs)   | `19980808d1dede5a62a9388cb1f458746334c5c3` | User-role AGENTS content with `# AGENTS.md instructions` and INSTRUCTIONS wrapper |
+| [Context fragment serialization](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/context-fragments/src/fragment.rs) | `f78d2a23988351d103ef5fdc67c46518d85b570b` | Fragment markers and body are concatenated verbatim                               |
+
+Together, the instruction body and fragment serializer establish one
+producer-added LF immediately before `</INSTRUCTIONS>`. Wrapper extraction
+removes only that added LF, preserving the enclosed bundle's own final LF and all
+other content bytes. It does not trim the instruction text.
+
+This is one supported representation, not a claim about every Codex release.
+Positive fixtures use system/developer `input_text` fields or the producer's
+AGENTS user wrapper. Object envelopes and bundles occurring only in arbitrary
+user text, assistant/tool output, metadata, or dictionary keys are negative
+fixtures. Separate fields remain separate; a split bundle is never reconstructed.
+
+Corruption fixtures change observed bodies, byte counts, digests, ordering,
+boundaries, or selected identities while retaining enough structure to exercise
+the specific rejection. Overlap fixtures contain complete bundles with distinct
+bundle IDs and compare actual module bodies, including equal bodies with
+different module IDs and reused IDs with different bodies. These are synthetic
+verifier cases, not evidence that a host has lost or duplicated instructions.

@@ -11,9 +11,12 @@ because an operator cannot resolve a path or drift failure without them.
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from agents_md_compiler.models import BundleState, ModuleSpec, PathPair
+
+if TYPE_CHECKING:
+    from agents_md_compiler.codex import CodexCapability, RuntimeVerification
 
 
 class CompilerError(Exception):
@@ -597,12 +600,24 @@ class CodexProblem(StrEnum):
     PROBE_CONTAMINATED = "the probe itself contains an expected marker or sentinel"
     PROBE_DIRECTORY_INVALID = "the Codex startup directory is not a directory"
     OUTPUT_TOO_LARGE = "codex output exceeded the captured size limit"
+    UNSUPPORTED_EVIDENCE = "prompt input does not match supported instruction evidence"
+    SELECTED_BUNDLE_MISSING = (
+        "the selected bundle identity is absent from instruction evidence"
+    )
+    DUPLICATE_SELECTED_BUNDLE = "the selected bundle appears more than once"
+    AMBIGUOUS_IDENTITY = "the selected bundle identity or boundaries are ambiguous"
+    MALFORMED_BOUNDARIES = "bundle module boundaries are malformed or incomplete"
+    MODULE_ORDER = "bundle module identities or order differ from the selection"
+    CONTENT_MISMATCH = "observed bundle content differs from the compiled selection"
 
 
 class CodexVerificationError(CompilerError):
     """Runtime verification did not pass, so the state is not ``CURRENT``."""
 
     state: BundleState | None = BundleState.RUNTIME_UNVERIFIED
+    capability: CodexCapability | None = None
+    probe_cwd: Path | None = None
+    verification: RuntimeVerification | None = None
 
     def __init__(
         self,
@@ -610,6 +625,7 @@ class CodexVerificationError(CompilerError):
         *,
         detail: str = "",
         command: tuple[str, ...] = (),
+        probe_cwd: Path | None = None,
     ) -> None:
         """Compose a runtime verification diagnostic.
 
@@ -617,6 +633,7 @@ class CodexVerificationError(CompilerError):
             problem: Which verification step failed.
             detail: Observed exit status, marker identifier, or other specifics.
             command: Exact argument vector used, for reproduction.
+            probe_cwd: Observed startup directory, redacted when contaminated.
         """
         parts = [problem.value]
         if detail:
@@ -625,4 +642,5 @@ class CodexVerificationError(CompilerError):
             parts.append("running: " + " ".join(command))
         self.problem = problem
         self.command = command
+        self.probe_cwd = probe_cwd
         super().__init__(" ".join(parts))

@@ -28,28 +28,30 @@ def bundle_text() -> str:
     """
     if not BUNDLE:
         return ""
-    return pathlib.Path(BUNDLE).read_text(encoding="utf-8")
+    return pathlib.Path(BUNDLE).read_bytes().decode("utf-8")
 
 
 def prompt_input_payload(text: str) -> object:
-    """Build a nested prompt-input document.
-
-    The nesting and key order deliberately differ from anything the verifier could
-    assume, so the recursive extraction is what makes the search work.
+    """Build a synthetic producer-shaped response-item array.
 
     Args:
         text: Bundle text to embed.
 
     Returns:
-        A JSON-serializable document containing the bundle text.
+        Typed input-text fields, with no authenticated-capture claim.
     """
-    return {
-        "items": [
-            {"type": "message", "role": "developer", "content": [{"text": text}]},
-            {"type": "message", "role": "user", "content": [{"text": "probe"}]},
-        ],
-        "metadata": {"turn": 1, "nested": {"deeper": ["a", {"also": "b"}]}},
-    }
+    return [
+        {
+            "type": "message",
+            "role": "developer",
+            "content": [{"type": "input_text", "text": text}],
+        },
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "probe"}],
+        },
+    ]
 
 
 def main() -> int:
@@ -100,6 +102,9 @@ def prompt_input(rest: list[str]) -> int:
         return 0
     if MODE == "invalid-json":
         sys.stdout.write("not json at all\n")
+        return 0
+    if MODE == "unsupported-evidence":
+        sys.stdout.write(json.dumps({"items": []}))
         return 0
     text = bundle_text()
     if MODE == "missing-marker":

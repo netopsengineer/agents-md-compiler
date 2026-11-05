@@ -29,6 +29,9 @@ against.
   input rather than trusting a model summary.
 - Frozen public format documentation for the manifest, lock, rendered bundle,
   CLI contract, and security model, plus JSON schemas shipped as package data.
+- Complete-content runtime verification fields and structured diagnostics under
+  the minor-release JSON compatibility policy. Existing envelope keys, schema
+  version, command signatures, states, and exit codes remain available.
 
 ### Changed
 
@@ -45,11 +48,29 @@ against.
   shared lock directory explicitly.
 - `verify-codex` isolates active global targets and verifies project or nested
   targets from an explicit valid startup directory.
+- `verify-codex` now validates one complete selected bundle in supported typed
+  instruction fields, instead of accepting aggregate marker/sentinel presence.
+  Its evidence adapter uses the inspected Codex producer representation recorded
+  in fixture provenance; unsupported envelopes fail explicitly. Rendered bytes,
+  manifest and lock formats, and installation behavior are unchanged.
+- Identical complete module bodies across distinct bundle IDs now produce
+  `CROSS_BUNDLE_CONTENT_OVERLAP` warnings while a verified selected bundle remains
+  `CURRENT`. Module ID reuse with different content is informational. Neither
+  outcome claims model compliance.
 - This repository now dogfoods a compiled project-local `AGENTS.md` from
   canonical policy under `.agents/`.
 
 ### Fixed
 
+- Runtime verification now rejects missing or altered middle content, incorrect
+  module order or boundaries, truncated bundles, extra module markers, and
+  duplicate or ambiguous selected bundle identities. Other bundles' marker reuse
+  no longer causes a false selected-bundle duplication failure. These changes
+  address issues [31](https://github.com/netopsengineer/agents-md-compiler/issues/31)
+  and [32](https://github.com/netopsengineer/agents-md-compiler/issues/32).
+- Short or repetitive modules can verify without a unique content sentinel.
+  Failure reporting retains observed probe metadata without rerunning sentinel
+  selection or disclosing policy bodies.
 - `init` scaffolds an explicit persistent target, and the quickstart explains
   global and repository targets, one-invocation overrides, standalone output,
   and required parent directories.

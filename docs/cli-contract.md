@@ -29,7 +29,7 @@ no manifest, no lock, and no filesystem access beyond installed metadata.
 | `status`       | no       | Report source, lock, target, override, and receipt state               |
 | `install`      | yes      | Back up and atomically install, only with `--apply`                    |
 | `rollback`     | yes      | Restore one receipt, only with `--apply` and a matching target digest  |
-| `verify-codex` | no       | Inspect Codex model-visible startup input for every module marker      |
+| `verify-codex` | no       | Verify one complete selected bundle in supported Codex startup input   |
 | `version`      | no       | Print the installed distribution version                               |
 
 ## Options
@@ -165,7 +165,7 @@ from a read-only observation.
 ## Streams
 
 - stdout carries requested output only: rendered bytes, the version string, or
-  exactly one JSON object.
+  a state token in text mode, or exactly one JSON object.
 - stderr carries progress and diagnostics, including every error message.
 - `--quiet` suppresses non-error stderr. It never suppresses JSON output,
   requested render output, or an error message.
@@ -281,18 +281,81 @@ differs from `lexical`.
 
 `verify-codex` adds:
 
-| Field                  | Type           | Meaning                                                 |
-|------------------------|----------------|---------------------------------------------------------|
-| `codex_path`           | string or null | Resolved executable                                     |
-| `codex_version`        | string or null | Captured `codex --version` output                       |
-| `capability_present`   | boolean        | `debug prompt-input` is exposed                         |
-| `markers_found`        | integer        | Module markers located in the prompt input              |
-| `markers_expected`     | integer        | Module markers required                                 |
-| `sentinels_found`      | integer        | First and last module content sentinels located         |
-| `probe_command`        | array          | Exact argument vector used, for reproduction            |
-| `probe_cwd`            | string or null | Startup directory used by the prompt-input probe        |
-| `verification_context` | string         | `global` or `project`                                   |
-| `failure`              | string or null | Observed failure when the state is `RUNTIME_UNVERIFIED` |
+| Field                         | Type            | Meaning                                                                             |
+|-------------------------------|-----------------|-------------------------------------------------------------------------------------|
+| `codex_path`                  | string or null  | Resolved executable                                                                 |
+| `codex_version`               | string or null  | Captured `codex --version` output                                                   |
+| `capability_present`          | boolean         | `debug prompt-input` is exposed                                                     |
+| `markers_found`               | integer         | Expected marker lines found within the selected occurrence                          |
+| `markers_expected`            | integer         | Generated header marker plus expected module boundaries                             |
+| `sentinels_expected`          | integer         | Available unique first/last-module content sentinels                                |
+| `sentinels_found`             | integer         | Available sentinels found within the selected occurrence                            |
+| `probe_command`               | array           | Exact argument vector, except contaminated values are redacted as described below   |
+| `probe_cwd`                   | string or null  | Startup directory, except a contaminated value is redacted as described below       |
+| `verification_context`        | string          | `global` or `project`                                                               |
+| `failure`                     | string or null  | Observed failure when the state is `RUNTIME_UNVERIFIED`                             |
+| `verification_method`         | string or null  | `complete_bundle_bytes` when the complete verifier is used                          |
+| `content_verified`            | boolean         | True only after complete selected-bundle verification                               |
+| `selected_bundle_occurrences` | integer or null | All observed selected-ID candidates; null when extraction did not establish a count |
+| `modules_expected`            | integer         | Modules in the compiled selection                                                   |
+| `modules_verified`            | integer         | Selected modules actually verified, never inferred from expected count              |
+| `overlap_scan_complete`       | boolean         | All relevant foreign candidates could be inspected                                  |
+| `diagnostics`                 | array           | Ordered structured findings described below                                         |
+
+The complete-content fields are additive under the minor-release compatibility
+policy; `schema_version` remains 1. Marker and sentinel counters are retained as
+legacy diagnostics, not success predicates. A short or repetitive module can pass
+without a usable sentinel. Failures retain executable/version, command, startup
+context, and partial verification information already observed; unavailable
+evidence is not replaced by an inferred success count.
+
+`PROBE_CONTAMINATED` is the sole exception to exact probe-command and
+startup-directory reporting. If an expected marker or sentinel occurs in a
+command argument or startup directory, the affected reported value is the literal
+`[REDACTED]`. Other captured command, path, and version facts are retained. The
+failure description never echoes the matched marker or sentinel prose.
+
+Each runtime diagnostic has this shape. Identity and location fields are null
+when the finding does not establish them.
+
+| Field             | Type           | Meaning                                                  |
+|-------------------|----------------|----------------------------------------------------------|
+| `code`            | string         | Stable finding category                                  |
+| `severity`        | string         | `error`, `warning`, or `info`                            |
+| `message`         | string         | Safe explanation without policy bodies or sentinel prose |
+| `bundle_id`       | string or null | Primary bundle identity                                  |
+| `module_id`       | string or null | Primary module identity                                  |
+| `sha256`          | string or null | Observed primary body digest when established            |
+| `other_bundle_id` | string or null | Related bundle identity                                  |
+| `other_module_id` | string or null | Related module identity                                  |
+| `other_sha256`    | string or null | Observed related body digest when established            |
+| `location`        | object or null | Primary evidence location                                |
+| `other_location`  | object or null | Related evidence location                                |
+
+An evidence location contains `json_path` (for example,
+`$[0].content[0].text`), `role`, `byte_start`, and `byte_end`. Offsets are
+zero-based UTF-8 byte offsets in the original decoded text field, including any
+producer wrapper: the start is inclusive and the end exclusive. They are not
+character offsets or positions in the serialized JSON.
+
+| Code                           | Severity | Meaning                                                                            |
+|--------------------------------|----------|------------------------------------------------------------------------------------|
+| `UNSUPPORTED_EVIDENCE`         | error    | Unsupported envelope, malformed relevant field, or unusable instruction encoding   |
+| `SELECTED_BUNDLE_MISSING`      | error    | No selected bundle identity was established in accepted instruction evidence       |
+| `DUPLICATE_SELECTED_BUNDLE`    | error    | Multiple exact copies of the selected bundle                                       |
+| `AMBIGUOUS_IDENTITY`           | error    | Conflicting same-ID candidates or ambiguous selected identity/boundaries           |
+| `MALFORMED_BOUNDARIES`         | error    | Invalid, missing, duplicated, nested, or unmatched selected structure              |
+| `MODULE_ORDER`                 | error    | Selected modules do not appear in compiled order                                   |
+| `CONTENT_MISMATCH`             | error    | Selected header identity or observed complete content differs from the compilation |
+| `MALFORMED_FOREIGN_BUNDLE`     | warning  | A foreign candidate cannot establish overlap; inspection is incomplete             |
+| `CROSS_BUNDLE_CONTENT_OVERLAP` | warning  | Complete module bodies are byte-identical across distinct bundle IDs               |
+| `MODULE_ID_REUSE`              | info     | Distinct bundles reuse a module ID with different complete bodies                  |
+| `OVERLAP_SCAN_LIMIT`           | warning  | The 1,000 pairwise-finding limit stopped overlap inspection                        |
+
+Existing capability and probe failure categories remain available. Text mode
+prints the state on stdout and findings on stderr. `--quiet` suppresses warnings
+and informational findings, never errors. JSON mode includes diagnostics in the
+normal single-object envelope, including when `--quiet` is set.
 
 `init` adds:
 
@@ -351,7 +414,64 @@ the active Codex home `AGENTS.md` or `AGENTS.override.md`, it uses an empty
 disposable startup directory and reports context `global`. Otherwise it reports
 context `project` and uses explicit `--cwd` or the target parent. The selected
 project directory must exist and be a directory. A successful result proves only
-that the rendered bytes appeared in Codex startup input for that directory.
+that the rendered bytes appeared in supported Codex startup instruction evidence
+for that directory. It does not prove model compliance.
+
+## Complete runtime verification
+
+The supported adapter accepts a root JSON array of response items. It examines
+`type="message"` entries and typed `content` elements with
+`type="input_text"` and string `text`. System/developer content and recognized
+AGENTS instruction wrappers in user messages are eligible. Arbitrary user text,
+assistant/tool output, metadata, and dictionary keys are not instruction evidence.
+Non-message response items, `output_text`, and supported image/audio content are
+ignored. Unsupported root envelopes and malformed relevant message/content fields
+report `RUNTIME_UNVERIFIED`; no recursive fallback is allowed.
+The inspected producer revision and synthetic-fixture provenance are recorded in
+[`tests/fixtures/README.md`](../tests/fixtures/README.md#codex).
+
+Every accepted field is separate. JSON decoding followed by strict UTF-8 encoding
+is the only permitted conversion. The user wrapper is recognized without trimming
+or normalizing its enclosed instruction text. Whitespace, line endings, Unicode,
+final newlines, and Markdown remain byte-significant. Fragments split across
+fields cannot be combined into a successful verification.
+
+Generated headers are located at line boundaries and candidates are selected by
+bundle ID. Every selected-ID candidate is counted before a success is chosen.
+Exactly one structurally valid candidate must match the compiled format,
+manifest digest, lock digest, module order, observed body lengths and digests,
+separators, and complete rendered span. Module occurrences must be unique and
+boundaries matched. Two exact copies fail as `DUPLICATE_SELECTED_BUNDLE`; a
+current copy plus a stale or altered same-ID candidate fails as
+`AMBIGUOUS_IDENTITY`. A good copy cannot hide another selected-ID candidate.
+
+Host prose may surround a complete bundle. Compiler markers are attributed
+through the containing field or next bundle header, so extra markers after an
+intact prefix fail even after intervening prose. Relocated content cannot repair
+missing or altered content within a module's boundaries.
+
+Unrelated valid bundles do not change selected integrity. Complete module bodies
+are indexed by observed digest and compared byte-for-byte across distinct bundle
+IDs, even when their module IDs differ. Identical content produces
+`CROSS_BUNDLE_CONTENT_OVERLAP` with both identities, digest, and evidence
+locations. The policy is **warning, still `CURRENT`**, with exit code 0 when the
+selected bundle verifies. Equal IDs with different bodies produce informational
+`MODULE_ID_REUSE`, not overlap or selected-bundle duplication. There is no fuzzy
+similarity, paragraph deduplication, rewriting, or configurable overlap-failure
+mode.
+
+To bound pairwise diagnostic output from hostile evidence, the overlap scan stops
+at 1,000 overlap/ID-reuse findings, adds an `OVERLAP_SCAN_LIMIT` warning, and sets
+`overlap_scan_complete` to false. Findings already established are retained.
+Selected-bundle integrity remains independent, so this warning does not change an
+otherwise verified `CURRENT` result. The limit is not a configurable
+overlap-failure policy.
+
+A malformed foreign candidate produces `MALFORMED_FOREIGN_BUNDLE` and sets
+`overlap_scan_complete` to false; it never establishes overlap. Selected
+verification fails only when that malformed structure makes selected identity or
+boundaries ambiguous. Complete selected verification and complete overlap
+inspection are therefore separate result claims.
 
 ## Format migration
 

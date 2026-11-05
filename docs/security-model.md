@@ -8,14 +8,14 @@ when something goes wrong.
 The operator-reviewed manifest is the trust boundary. Everything the compiler
 reads, it reads because a human listed it in a file they reviewed.
 
-| Input                   | Trust                                                                              |
-|-------------------------|------------------------------------------------------------------------------------|
-| Manifest                | Trusted structure, validated strictly, must be reviewed by a human                 |
-| Canonical source bytes  | Trusted to be the operator's chosen content; the content itself is untrusted prose |
-| Existing lock           | Untrusted input, schema-validated, never a trust signal                            |
-| Existing target         | Untrusted input, header-checked and whole-file hashed, never followed as a symlink |
-| Install receipt         | Untrusted input, schema-validated, path-constrained before use                     |
-| Codex prompt-input JSON | Untrusted input, parsed defensively, only searched for markers                     |
+| Input                   | Trust                                                                                     |
+|-------------------------|-------------------------------------------------------------------------------------------|
+| Manifest                | Trusted structure, validated strictly, must be reviewed by a human                        |
+| Canonical source bytes  | Trusted to be the operator's chosen content; the content itself is untrusted prose        |
+| Existing lock           | Untrusted input, schema-validated, never a trust signal                                   |
+| Existing target         | Untrusted input, header-checked and whole-file hashed, never followed as a symlink        |
+| Install receipt         | Untrusted input, schema-validated, path-constrained before use                            |
+| Codex prompt-input JSON | Untrusted evidence; only supported instruction fields are structurally and byte-validated |
 
 ### Compiled policy content is not sanitized
 
@@ -116,6 +116,58 @@ inside a longer module's text, so counting occurrences would prove nothing. An
 existing target is recognized by its exact generated header and compared with the
 fresh render by a whole-file digest.
 
+## Runtime instruction evidence
+
+Runtime verification first requires static `CURRENT`, then examines only the
+supported producer representation: a root JSON array of response items, with
+`type="message"` entries containing typed `input_text` fields. System/developer
+content and producer-wrapped AGENTS user instructions are eligible. Arbitrary
+user text, assistant/tool output, metadata, and dictionary keys cannot establish
+success. Non-message response items, `output_text`, and supported image/audio
+content are ignored. Malformed relevant message/content fields and unsupported
+root envelopes fail with `RUNTIME_UNVERIFIED`; there is no recursive string-search
+fallback.
+
+Accepted fields remain separate, with their role, JSON location, and UTF-8 byte
+offsets. The adapter removes only the recognized user-instruction wrapper and
+preserves its enclosed bytes exactly. It performs JSON decoding followed by
+strict UTF-8 encoding, never Unicode normalization, newline conversion, trimming,
+Markdown rewriting, or cross-field concatenation. A bundle split across fields
+therefore cannot pass.
+
+The verifier counts all candidates carrying the selected bundle ID before
+accepting one. Multiple exact selected copies are duplicates; a current copy
+plus a stale or altered same-ID candidate is ambiguous. Complete verification
+checks header identity, module order and uniqueness, separators, matched
+boundaries, observed byte lengths and body digests, and the complete rendered
+span. A marker's written digest is not evidence that its body survived.
+Content elsewhere in a field cannot replace content missing from a module.
+
+Ordinary host prose may surround a bundle. Compiler tokens are attributed through
+the containing field or the next bundle header, so an extra, nested, duplicated,
+or unmatched module marker cannot hide after an intact prefix, even behind
+intervening prose. Malformed foreign bundles do not establish overlap. They
+produce a diagnostic and mark overlap inspection incomplete; selected verification
+also fails when their structure makes selected identity or boundaries ambiguous.
+
+Cross-bundle overlap is an advisory policy, separate from selected integrity.
+Complete observed bodies with equal digests are compared byte-for-byte before
+reporting `CROSS_BUNDLE_CONTENT_OVERLAP`, including both bundle/module identities
+and evidence locations. This warning leaves a verified selection `CURRENT`.
+Equal module IDs with different bodies produce informational `MODULE_ID_REUSE`.
+Neither finding rewrites policy or claims that duplicated rules are appropriate.
+Pairwise output is bounded: after 1,000 overlap/ID-reuse findings, scanning stops
+with an `OVERLAP_SCAN_LIMIT` warning and `overlap_scan_complete=false`. Previously
+established findings remain available. This bound limits hostile diagnostic
+amplification without changing selected-bundle integrity or introducing a
+configurable overlap-failure policy.
+
+The adapter is grounded in the producer revision recorded in
+[`tests/fixtures/README.md`](../tests/fixtures/README.md#codex). Synthetic fixtures
+establish parser behavior, not authenticated capture or live-host compatibility.
+Even a successful live probe establishes content visibility for that context,
+not policy safety, model obedience, or semantic compliance.
+
 ## Unicode and control characters
 
 Source validation rejects a UTF-8 BOM, any NUL byte, any CR byte, invalid UTF-8,
@@ -154,8 +206,14 @@ bidirectional or invisible control.
 
 - Canonical policy content never appears in an error message, a status report, a
   lock, a receipt, or a JSON envelope. Only `render` to stdout emits policy bytes.
-- Diagnostics do reveal paths and digests, because an operator cannot resolve a
-  path or drift failure without them.
+- Diagnostics reveal paths, bundle/module identifiers, byte offsets, sizes, and
+  digests, because an operator cannot resolve identity or drift failures without
+  them. They never include policy bodies or selected sentinel prose.
+- On `PROBE_CONTAMINATED` only, a command argument or startup directory containing
+  an expected marker or sentinel is reported as the literal `[REDACTED]` rather
+  than echoed. Unaffected captured command, path, and version facts are retained.
+  This is the sole exception to exact `probe_command` and `probe_cwd` reporting;
+  the failure description never includes the matched policy text.
 - A backup contains the exact prior target bytes. That is the point of a backup,
   and it is why state directories and state files are created with owner-only
   permissions on POSIX systems.

@@ -1201,7 +1201,7 @@ def test_verify_codex_reports_a_note_in_text_mode(
     assert run("verify-codex") == cli.EXIT_OK
     captured = capsys.readouterr()
     assert captured.out.strip() == "CURRENT"
-    assert "content sentinels" in captured.err
+    assert "complete bundle (2/2 modules verified)" in captured.err
 
 
 def test_verify_codex_reports_runtime_unverified_and_exits_one(
@@ -1233,7 +1233,7 @@ def test_verify_codex_reports_the_failure_on_stderr_in_text_mode(
     assert run("verify-codex") == cli.EXIT_ERROR
     captured = capsys.readouterr()
     assert captured.out.strip() == "RUNTIME_UNVERIFIED"
-    assert "module marker is not present" in captured.err
+    assert "MALFORMED_BOUNDARIES" in captured.err
 
 
 def test_verify_codex_never_reports_current_for_a_drifted_target(
@@ -1269,3 +1269,18 @@ def test_verify_codex_refuses_a_shadowed_target(
     install_verify_mock(workspace, tmp_path, monkeypatch)
     assert run("verify-codex", "--format", "json") == cli.EXIT_REFUSAL
     assert envelope(capsys.readouterr().out)["state"] == "SHADOWED"
+
+
+def test_unsupported_runtime_evidence_reports_a_structured_text_error(
+    workspace: Bundle,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run("install", "--apply") == cli.EXIT_OK
+    capsys.readouterr()
+    install_verify_mock(workspace, tmp_path, monkeypatch, mode="unsupported-evidence")
+    assert run("verify-codex", "--quiet") == cli.EXIT_ERROR
+    captured = capsys.readouterr()
+    assert captured.out == "RUNTIME_UNVERIFIED\n"
+    assert "UNSUPPORTED_EVIDENCE" in captured.err

@@ -18,6 +18,7 @@ import json
 import os
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -29,8 +30,6 @@ from agents_md_compiler.codex import (
     RuntimeVerification,
     VerificationContext,
     active_codex_home,
-    content_sentinels,
-    required_markers,
     unverified,
     verification_context_for_target,
     verify_rendered_visibility,
@@ -1212,8 +1211,6 @@ def _run_verify_codex(args: argparse.Namespace) -> int:
     except CodexVerificationError as error:
         result = unverified(
             error,
-            markers_expected=len(required_markers(rendered.modules)),
-            sentinels_expected=len(content_sentinels(rendered)),
             probe_cwd=probe_cwd,
             verification_context=context,
         )
@@ -1233,10 +1230,24 @@ def _run_verify_codex(args: argparse.Namespace) -> int:
         else:
             _note(
                 args,
-                f"{PROGRAM_NAME}: {result.codex_version} exposed all "
-                f"{result.markers_found} markers and {result.sentinels_found} "
-                "content sentinels",
+                f"{PROGRAM_NAME}: {result.codex_version} exposed the complete bundle "
+                f"({result.modules_verified}/{result.modules_expected} modules verified)",
             )
+        for diagnostic in result.diagnostics:
+            text = f"{PROGRAM_NAME}: {diagnostic.severity}: {diagnostic.code.value}: {diagnostic.message}"
+            if diagnostic.bundle_id is not None:
+                text += f"; bundle={diagnostic.bundle_id} module={diagnostic.module_id}"
+            if diagnostic.other_bundle_id is not None:
+                text += f"; other_bundle={diagnostic.other_bundle_id} other_module={diagnostic.other_module_id}"
+            if diagnostic.sha256 is not None:
+                text += f"; sha256={diagnostic.sha256}"
+            for location in (diagnostic.location, diagnostic.other_location):
+                if location is not None:
+                    text += f"; {location.json_path} role={location.role} bytes={location.byte_start}:{location.byte_end}"
+            if diagnostic.severity == "error":
+                sys.stderr.write(text + "\n")
+            else:
+                _note(args, text)
     return code
 
 
@@ -1261,6 +1272,13 @@ def _verification_payload(result: RuntimeVerification) -> dict[str, Any]:
         "probe_cwd": None if result.probe_cwd is None else str(result.probe_cwd),
         "verification_context": result.verification_context.value,
         "failure": result.failure,
+        "verification_method": result.verification_method,
+        "content_verified": result.content_verified,
+        "selected_bundle_occurrences": result.selected_bundle_occurrences,
+        "modules_expected": result.modules_expected,
+        "modules_verified": result.modules_verified,
+        "overlap_scan_complete": result.overlap_scan_complete,
+        "diagnostics": [asdict(item) for item in result.diagnostics],
     }
 
 
