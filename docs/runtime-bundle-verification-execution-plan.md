@@ -305,8 +305,26 @@ Git email. Use that account explicitly for GitHub operations and use
 `netopsengineer` as the commit author name. Leave the workstation's default
 GitHub account and personal Git configuration unchanged.
 
-Next actions: create the feature branch, stage only the reviewed change set,
-commit with hooks enabled, push, open the PR, and monitor its exact head checks.
-Record the PR/head/run identities and repair count here before any interruption.
-After green CI, merge and monitor main plus release-preparation follow-on runs.
-Preserve the live-runtime limitation above in the PR and final report.
+Checkpoint: implementation commit
+`1a38a82d35ca9e9475a74749f9f0553ba4a188c3` is authored and committed by
+`netopsengineer`, with all commit hooks enabled and passing. The full aggregate
+also passed on its clean committed tree without edits; output is retained at
+`/private/tmp/amc-runtime-artifacts-wfyb6_oz/committed-aggregate.log` and in the PR
+body. All 147 files in the tested-state inventory still matched before commit,
+excluding this evolving execution record.
+
+Branch: `feat/runtime-bundle-verification`. PR:
+[66](https://github.com/netopsengineer/agents-md-compiler/pull/66), opened by
+`netopsengineer`. Initial workflows are
+[validate](https://github.com/netopsengineer/agents-md-compiler/actions/runs/42088062674)
+and [security-scan](https://github.com/netopsengineer/agents-md-compiler/actions/runs/42088062704).
+They were pending at this checkpoint; this documentation-only checkpoint will
+produce a new head and fresh PR runs. It is not a CI repair cycle.
+
+Next action: query PR 66 for its actual head, check results, and merge state.
+Require all applicable checks green for the exact current head before merging.
+If already merged, do not repeat the mutation: resolve its merge SHA and inspect
+main and release-preparation follow-on runs. GitHub PR/run records are the
+authoritative evidence for transitions after this checkpoint. Preserve the
+live-runtime limitation above in the PR and final report. Update this same record
+before any repair or interrupted handoff; do not create a second progress file.
