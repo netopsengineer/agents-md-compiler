@@ -384,15 +384,9 @@ def _check_probe_is_clean(
             raise CodexVerificationError(
                 CodexProblem.PROBE_CONTAMINATED,
                 detail="expected verification token occurs in probe arguments or directory",
-                command=tuple(
-                    "[REDACTED]" if any(token in arg for token in expected) else arg
-                    for arg in command
-                ),
-                probe_cwd=(
-                    Path("[REDACTED]")
-                    if any(token in str(directory) for token in expected)
-                    else None
-                ),
+                command=tuple(command),
+                probe_cwd=directory,
+                redaction_tokens=tuple(expected),
             )
 
 
@@ -570,7 +564,12 @@ def verify_rendered_visibility(
             probe_cwd=probe_cwd,
             verification_method="complete_bundle_bytes",
         )
-        fields = extract_instruction_evidence(document)
+        try:
+            fields = extract_instruction_evidence(document)
+        except CodexVerificationError as error:
+            raise CodexVerificationError(
+                error.problem, detail=error.detail, command=command
+            ) from error
         inspection = inspect_content(rendered, fields)
         selected = inspection.selected_data
         result = replace(
@@ -611,6 +610,16 @@ def verify_rendered_visibility(
             )
         result = replace(
             result,
+            codex_path=(
+                None
+                if result.codex_path is None
+                else Path(error.redact(str(result.codex_path)))
+            ),
+            codex_version=(
+                None
+                if result.codex_version is None
+                else error.redact(result.codex_version)
+            ),
             failure=str(error),
             diagnostics=diagnostics,
             probe_command=error.command or result.probe_command,

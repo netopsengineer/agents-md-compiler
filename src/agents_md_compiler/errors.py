@@ -626,6 +626,7 @@ class CodexVerificationError(CompilerError):
         detail: str = "",
         command: tuple[str, ...] = (),
         probe_cwd: Path | None = None,
+        redaction_tokens: tuple[str, ...] = (),
     ) -> None:
         """Compose a runtime verification diagnostic.
 
@@ -634,13 +635,35 @@ class CodexVerificationError(CompilerError):
             detail: Observed exit status, marker identifier, or other specifics.
             command: Exact argument vector used, for reproduction.
             probe_cwd: Observed startup directory, redacted when contaminated.
+            redaction_tokens: Verification values to redact from reported metadata.
         """
+        self._redaction_tokens = redaction_tokens
+        self.detail: str = self.redact(detail)
+        self.command: tuple[str, ...] = tuple(
+            self.redact(argument) for argument in command
+        )
+        self.probe_cwd: Path | None = (
+            None if probe_cwd is None else Path(self.redact(str(probe_cwd)))
+        )
         parts = [problem.value]
-        if detail:
-            parts.append(f"({detail})")
-        if command:
-            parts.append("running: " + " ".join(command))
+        if self.detail:
+            parts.append(f"({self.detail})")
+        if self.command:
+            parts.append("running: " + " ".join(self.command))
         self.problem = problem
-        self.command = command
-        self.probe_cwd = probe_cwd
         super().__init__(" ".join(parts))
+
+    def redact(self, value: str) -> str:
+        """Redact one contaminated metadata value without reselecting sentinels.
+
+        Args:
+            value: A value about to be reported, not canonical source content.
+
+        Returns:
+            The redaction literal when a verification token occurs, else the value.
+        """
+        return (
+            "[REDACTED]"
+            if any(token in value for token in self._redaction_tokens)
+            else value
+        )

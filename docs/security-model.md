@@ -209,10 +209,11 @@ bidirectional or invisible control.
 - Diagnostics reveal paths, bundle/module identifiers, byte offsets, sizes, and
   digests, because an operator cannot resolve identity or drift failures without
   them. They never include policy bodies or selected sentinel prose.
-- On `PROBE_CONTAMINATED` only, a command argument or startup directory containing
-  an expected marker or sentinel is reported as the literal `[REDACTED]` rather
-  than echoed. Unaffected captured command, path, and version facts are retained.
-  This is the sole exception to exact `probe_command` and `probe_cwd` reporting;
+- On `PROBE_CONTAMINATED` only, every reported string value containing a
+  verification token is the literal `[REDACTED]`, including command arguments,
+  startup directories, executable paths, and manifest/lock/target path aliases.
+  Unaffected captured metadata is retained. This exception to exact metadata
+  reporting reuses the original verification tokens without reselecting sentinels;
   the failure description never includes the matched policy text.
 - A backup contains the exact prior target bytes. That is the point of a backup,
   and it is why state directories and state files are created with owner-only

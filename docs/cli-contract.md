@@ -309,11 +309,19 @@ without a usable sentinel. Failures retain executable/version, command, startup
 context, and partial verification information already observed; unavailable
 evidence is not replaced by an inferred success count.
 
-`PROBE_CONTAMINATED` is the sole exception to exact probe-command and
-startup-directory reporting. If an expected marker or sentinel occurs in a
-command argument or startup directory, the affected reported value is the literal
-`[REDACTED]`. Other captured command, path, and version facts are retained. The
-failure description never echoes the matched marker or sentinel prose.
+`PROBE_CONTAMINATED` is the exception to exact metadata reporting. If an expected
+marker or sentinel occurs in a command argument or startup directory, every
+reported string value containing a verification token becomes the literal
+`[REDACTED]`. This includes aliases in `codex_path`, `manifest_path`, `lock_path`,
+and `target_path`, not only `probe_command` and `probe_cwd`. Unaffected metadata
+is retained. Redaction reuses the captured verification tokens; it does not select
+sentinels again while reporting a failure. The failure description never echoes
+the matched marker or sentinel prose.
+
+Unsupported-evidence failures retain the exact probe command in both text and
+JSON modes, including under `--quiet`. A probe that never ran cannot supply an
+observed probe command; capability failures instead report the capability command
+that failed.
 
 Each runtime diagnostic has this shape. Identity and location fields are null
 when the finding does not establish them.
