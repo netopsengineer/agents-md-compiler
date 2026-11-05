@@ -295,7 +295,7 @@ or installed target writes are authorized.
 ## Git integration and CI continuation
 
 Owner: root integration agent. User authorization extends the endpoint as stated
-above. CI repair budget: 0 of 5 cycles used. A cycle consists of a corrective
+above. CI repair budget: 1 of 5 cycles used, successful. A cycle consists of a corrective
 change or evidence-backed rerun followed by assessment of the affected CI.
 Stop after five unsuccessful repair cycles; never merge a failing head.
 
@@ -328,3 +328,21 @@ main and release-preparation follow-on runs. GitHub PR/run records are the
 authoritative evidence for transitions after this checkpoint. Preserve the
 live-runtime limitation above in the PR and final report. Update this same record
 before any repair or interrupted handoff; do not create a second progress file.
+
+CI cycle 1: head `606f153f6762d709fe5eba88cbedbc630e9bcfce`, validation run
+`42088259615`, completed with failure because job `127459750001`
+(`smoke (macos-latest)`) never acquired a hosted runner. GitHub's failure
+annotation states: "The job was not acquired by Runner of type hosted even after
+multiple attempts" and notices identify macOS arm64 capacity constraints. Every
+other required job passed. The test gate log records 922 tests passed, 2342
+statements and 612 branches at 100 percent coverage.
+
+Recovery: reran only the affected job to request a fresh allocation. Replacement
+job `127469485588` passed on hosted runner `GitHub Actions 1000013572`. This was an
+infrastructure retry, not a code correction or a successful first attempt
+(`PY-TEST-010`). No code, workflow, or platform requirement changed. Retain the
+original failure in the final report.
+
+This outcome checkpoint is documentation-only. Require fresh checks after its
+commit, then use the PR and exact-head workflow records to establish merge and
+follow-on status. Do not change the retry count for a documentation checkpoint.
