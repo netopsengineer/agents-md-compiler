@@ -4,7 +4,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import CORE_TEXT, compiled_of, make_bundle
+from conftest import CORE_TEXT, compiled_of, install_mock_codex, make_bundle
+from pytest_mock import MockerFixture
 
 from agents_md_compiler import codex
 from agents_md_compiler.errors import CodexProblem, CodexVerificationError
@@ -133,3 +134,25 @@ def test_contaminated_directory_remains_redacted_through_probe_failure(
         codex.inspect_prompt_input(capability, expected=(secret,), cwd=directory)
     assert secret not in str(raised.value)
     assert codex.unverified(raised.value).probe_cwd == Path("[REDACTED]")
+
+
+def test_typed_contamination_result_is_safe_without_reselecting_sentinels(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+) -> None:
+    sentinel = "Keep synthetic payroll policy private."
+    rendered = compiled_of(
+        make_bundle(tmp_path / "bundle", module_texts=(("core", sentinel + "\n"),))
+    ).rendered
+    install_mock_codex(tmp_path / sentinel, monkeypatch, mode="ok")
+    selection = mocker.spy(codex, "content_sentinels")
+    with pytest.raises(CodexVerificationError) as raised:
+        codex.verify_rendered_visibility(rendered, cwd=tmp_path)
+    result = codex.unverified(raised.value)
+    assert selection.call_count == 1
+    assert result.codex_path == Path("[REDACTED]")
+    assert result.probe_command[0] == "[REDACTED]"
+    assert result.probe_cwd == tmp_path
+    assert result.codex_version == "codex-cli 9.9.9-mock"
+    assert sentinel not in repr(result) + str(raised.value)

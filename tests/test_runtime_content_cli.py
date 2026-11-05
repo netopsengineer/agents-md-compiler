@@ -275,3 +275,80 @@ def test_cli_mock_preserves_crlf_corruption_for_byte_verification(
     assert payload["state"] == "RUNTIME_UNVERIFIED"
     assert payload["content_verified"] is False
     assert "MALFORMED_BOUNDARIES" in json.dumps(payload["diagnostics"])
+
+
+@pytest.mark.parametrize("location", ["executable", "bundle-root", "startup"])
+@pytest.mark.parametrize("output_format", ["text", "json"])
+@pytest.mark.parametrize("quiet", [False, True])
+def test_contamination_redacts_every_reported_alias(
+    location: str,
+    output_format: str,
+    quiet: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sentinel = "Keep synthetic payroll policy private."
+    bundle = installed_fixture(
+        tmp_path / sentinel if location == "bundle-root" else tmp_path / "bundle",
+        texts=(("core", sentinel + "\n"),),
+    )
+    mock = install_mock_codex(
+        tmp_path / sentinel if location == "executable" else tmp_path / "host",
+        monkeypatch,
+        mode="ok",
+        bundle=bundle.target,
+    )
+    options = ["--format", output_format]
+    if quiet:
+        options.append("--quiet")
+    if location == "startup":
+        startup = bundle.target.parent / sentinel
+        startup.mkdir()
+        options.extend(["--cwd", str(startup)])
+    before = bundle.target.read_bytes()
+    assert invoke(bundle, *options) == 1
+    captured = capsys.readouterr()
+    assert sentinel not in captured.out + captured.err
+    assert bundle.target.read_bytes() == before
+    if output_format == "json":
+        payload = json_envelope(captured.out)
+        assert payload["state"] == "RUNTIME_UNVERIFIED"
+        assert payload["content_verified"] is False
+        assert payload["codex_version"] == "codex-cli 9.9.9-mock"
+        assert payload["codex_path"] == (
+            "[REDACTED]" if location == "executable" else str(mock.executable)
+        )
+        for field, path in (
+            ("manifest_path", bundle.manifest),
+            ("lock_path", bundle.lock),
+            ("target_path", bundle.target),
+        ):
+            assert payload[field] == (
+                "[REDACTED]" if location == "bundle-root" else str(path)
+            )
+        assert payload["probe_cwd"] == (
+            str(bundle.target.parent) if location == "executable" else "[REDACTED]"
+        )
+    else:
+        assert captured.out == "RUNTIME_UNVERIFIED\n"
+        assert "probe itself contains" in captured.err
+
+
+@pytest.mark.parametrize("mode", ["unsupported-evidence", "malformed-evidence"])
+@pytest.mark.parametrize("quiet", [False, True])
+def test_unsupported_evidence_reports_exact_command_in_text_mode(
+    mode: str,
+    quiet: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bundle = installed_fixture(tmp_path / "bundle")
+    mock = install_mock_codex(tmp_path, monkeypatch, mode=mode, bundle=bundle.target)
+    assert invoke(bundle, *("--quiet",) if quiet else ()) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "RUNTIME_UNVERIFIED\n"
+    assert "UNSUPPORTED_EVIDENCE" in captured.err
+    command = f"{mock.executable} debug prompt-input agents-md-compiler runtime visibility probe"
+    assert command in captured.err

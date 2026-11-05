@@ -1,9 +1,14 @@
 # agents-md-compiler
 
 Compile ordered Markdown policy modules into one deterministic, verifiable
-`AGENTS.md`. The target can be global, repository-local, nested, or another
-explicit path. The runtime has no dependencies, performs no network access,
-invokes no shell, and uses no LLM.
+`AGENTS.md` or `AGENTS.override.md`. The target can be global, repository-local,
+nested, or another explicit path. The runtime has no dependencies, performs no
+network access, invokes no shell, and uses no LLM.
+
+**Keep your own local instructions without editing the repository's `AGENTS.md`.**
+Compile to `AGENTS.override.md` when shared instructions are unsuitable and you
+cannot change them. Codex prefers the override in that directory; the shared file
+stays untouched. See the [local override quickstart](#local-override-quickstart).
 
 ## The mental model
 
@@ -11,12 +16,13 @@ One manifest owns one ordered module set and one default target. The compiler
 does not need a scope flag because Codex scope comes from the target path and the
 startup working directory:
 
-| Purpose           | Typical target            | Verification context           |
-|-------------------|---------------------------|--------------------------------|
-| Global policy     | `~/.codex/AGENTS.md`      | Isolated empty directory       |
-| Repository policy | `<repo>/AGENTS.md`        | Repository root or descendant  |
-| Nested policy     | `<repo>/<area>/AGENTS.md` | Target directory or descendant |
-| Standalone export | Any new path              | No Codex visibility promise    |
+| Purpose                      | Typical target              | Verification context           |
+|------------------------------|-----------------------------|--------------------------------|
+| Global policy                | `~/.codex/AGENTS.md`        | Isolated empty directory       |
+| Repository policy            | `<repo>/AGENTS.md`          | Repository root or descendant  |
+| Personal repository override | `<repo>/AGENTS.override.md` | Repository root or descendant  |
+| Nested policy                | `<repo>/<area>/AGENTS.md`   | Target directory or descendant |
+| Standalone export            | Any new path                | No Codex visibility promise    |
 
 The same `lock`, `validate`, `check`, `install`, `status`, and `rollback`
 workflow applies to every target. `verify-codex` adds the startup directory
@@ -40,6 +46,8 @@ those needs without hiding provenance:
 - checking detects source drift, output drift, a missing target, shadowing, and
   unmanaged content;
 - installation is explicit, atomic, backed up, and concurrency-safe;
+- `AGENTS.override.md` is a supported target for local customization without
+  replacing the repository's shared `AGENTS.md`;
 - rollback restores exact prior bytes and refuses after an external target edit;
 - runtime verification inspects Codex prompt input instead of asking a model what
   it thinks it read.
@@ -136,6 +144,55 @@ agents-md-compiler verify-codex \
 It does not claim that Codex discovers that target from every possible working
 directory. A successful `verify-codex` makes the visibility claim only for its
 reported startup directory.
+
+## Local override quickstart
+
+Use this when you need your own instruction setup in a repository whose existing
+`AGENTS.md` you cannot edit. The compiler manages `AGENTS.override.md` with the
+same lock, validation, installation, rollback, and runtime verification workflow.
+No change to the shared instruction file is required.
+
+Run from the root of a Git checkout where `AGENTS.override.md` and `.agents-local`
+do not already exist or belong to tracked files. The local exclude file keeps
+these new files out of ordinary Git staging without editing tracked `.gitignore`.
+Ignore rules do not hide changes to files Git already tracks.
+Before the first install, the preview reports `MISSING` with exit code 2;
+review that planned change, then run the `--apply` command.
+
+```bash
+printf '\n/AGENTS.override.md\n/.agents-local/\n' >> "$(git rev-parse --git-path info/exclude)"
+
+agents-md-compiler init \
+  --directory ./.agents-local \
+  --target ./AGENTS.override.md \
+  --bundle-id personal-project-policy
+
+# Edit .agents-local/modules/*.md with your own instructions before locking.
+agents-md-compiler lock --manifest ./.agents-local/agents-md.toml
+agents-md-compiler validate --manifest ./.agents-local/agents-md.toml
+agents-md-compiler render --manifest ./.agents-local/agents-md.toml --locked
+
+# Preview, then explicitly install only the override target.
+agents-md-compiler install --manifest ./.agents-local/agents-md.toml
+agents-md-compiler install --manifest ./.agents-local/agents-md.toml --apply
+agents-md-compiler check --manifest ./.agents-local/agents-md.toml
+agents-md-compiler verify-codex \
+  --manifest ./.agents-local/agents-md.toml \
+  --cwd .
+```
+
+**The override replaces, rather than appends to, the sibling `AGENTS.md` in Codex's
+startup input.** Keep any repository guidance you still need in your canonical
+modules. Global instructions and files at other levels of the project instruction
+chain still apply. Start a fresh Codex session after installation. This precedence
+comes from [Codex instruction discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md#how-codex-discovers-guidance),
+not a compiler-specific setting.
+
+If an override already exists, use the [existing-file adoption workflow](#adopting-an-existing-agentsmd)
+with its path and digest; the compiler never replaces an unmanaged override
+silently. To restore the previous file or its prior absence, use the install
+receipt with the [rollback workflow](#safety-and-operational-state), then start a
+fresh session. A nested override works the same way at its own directory level.
 
 ## Normal edit workflow
 
@@ -344,7 +401,8 @@ The command sends no model request, requires no API authentication, changes no
 Codex configuration, and makes no semantic-compliance claim. Complete content
 visibility is not proof that a model follows the instructions. If the debug
 interface is missing, fails, or returns an unsupported representation, the state
-is `RUNTIME_UNVERIFIED` and the exact failing command is reported. Synthetic
+is `RUNTIME_UNVERIFIED` and the exact failing command is reported in both text and
+JSON modes, including under `--quiet`. Contaminated values are redacted. Synthetic
 adapter tests do not establish successful integration with an installed host;
 that requires a successful live probe in the intended startup context.
 

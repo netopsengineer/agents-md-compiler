@@ -62,6 +62,13 @@ against.
 
 ### Fixed
 
+- Runtime contamination failures now redact matching values throughout the JSON
+  envelope, including executable and manifest/lock/target path aliases, while
+  preserving unaffected metadata. Unsupported-evidence errors report the exact
+  probe command in text mode as well as JSON, including under `--quiet`.
+- The README now foregrounds `AGENTS.override.md` support and provides a local-only
+  repository quickstart that leaves shared instructions and tracked Git ignore
+  rules unchanged.
 - Runtime verification now rejects missing or altered middle content, incorrect
   module order or boundaries, truncated bundles, extra module markers, and
   duplicate or ambiguous selected bundle identities. Other bundles' marker reuse

@@ -20,7 +20,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from agents_md_compiler._version import distribution_version
 from agents_md_compiler.atomic import atomic_write, create_state_directory
@@ -1204,11 +1204,13 @@ def _run_verify_codex(args: argparse.Namespace) -> int:
             },
         )
     rendered = status.compiled.rendered
+    failure: CodexVerificationError | None = None
     try:
         result = verify_rendered_visibility(
             rendered, cwd=probe_cwd, timeout_seconds=args.timeout
         )
     except CodexVerificationError as error:
+        failure = error
         result = unverified(
             error,
             probe_cwd=probe_cwd,
@@ -1222,6 +1224,8 @@ def _run_verify_codex(args: argparse.Namespace) -> int:
             None if status.target is None else status.target.sha256
         )
         payload.update(_verification_payload(result))
+        if failure is not None:
+            payload = _redact_runtime_payload(payload, failure)
         emit_json(payload)
     else:
         sys.stdout.write(f"{result.state.value}\n")
@@ -1249,6 +1253,30 @@ def _run_verify_codex(args: argparse.Namespace) -> int:
             else:
                 _note(args, text)
     return code
+
+
+def _redact_runtime_payload(value: Any, error: CodexVerificationError) -> Any:
+    """Apply the captured contamination tokens to every serialized metadata value.
+
+    Args:
+        value: JSON-compatible runtime metadata, including shared bundle fields.
+        error: Failure retaining the original verification token selection.
+
+    Returns:
+        Metadata with contaminated string values replaced by the redaction literal.
+    """
+    if isinstance(value, str):
+        return error.redact(value)
+    if isinstance(value, dict):
+        mapping = cast("dict[str, Any]", value)
+        return {
+            key: _redact_runtime_payload(item, error) for key, item in mapping.items()
+        }
+    if isinstance(value, list):
+        return [
+            _redact_runtime_payload(item, error) for item in cast("list[Any]", value)
+        ]
+    return value
 
 
 def _verification_payload(result: RuntimeVerification) -> dict[str, Any]:

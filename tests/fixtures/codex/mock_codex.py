@@ -106,6 +106,11 @@ def prompt_input(rest: list[str]) -> int:
     if MODE == "unsupported-evidence":
         sys.stdout.write(json.dumps({"items": []}))
         return 0
+    if MODE == "malformed-evidence":
+        sys.stdout.write(
+            json.dumps([{"type": "message", "role": "developer", "content": {}}])
+        )
+        return 0
     text = bundle_text()
     if MODE == "missing-marker":
         text = text.replace("agents-md-compiler:module-end", "removed-end-marker")
