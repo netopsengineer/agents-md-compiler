@@ -281,7 +281,8 @@ not establish authorship, correctness, or safety. See
 ## JSON automation
 
 Every command accepts `--format json` and emits exactly one JSON object to stdout.
-Diagnostics remain on stderr.
+Runtime verification includes structured findings in that envelope. Text-mode
+findings and error messages use stderr.
 
 ```bash
 agents-md-compiler status \
@@ -304,9 +305,35 @@ render output.
 ## Codex verification limits
 
 `verify-codex` resolves `codex` from `PATH`, captures `codex --version`, confirms
-that `debug prompt-input` is available, and searches the returned JSON for the
-generated marker, every module boundary, and unique content sentinels from the
-first and last modules.
+that `debug prompt-input` is available, and verifies the complete selected bundle
+in supported startup instruction evidence. It reports `CURRENT` only when exactly
+one occurrence of the selected bundle ID has the expected header identity,
+module order, boundaries, byte lengths, body digests, and complete rendered bytes.
+Removing or changing a middle module cannot pass by retaining its markers.
+
+The supported evidence is a root JSON array of response items, with typed
+`input_text` content in system/developer messages or the producer's AGENTS wrapper
+in user messages. Arbitrary user text, assistant/tool output, metadata, and keys
+are not instruction evidence. Each accepted field is inspected separately:
+fragments split across fields cannot make a complete bundle. Only JSON decoding
+and strict UTF-8 encoding are allowed; whitespace, line endings, final newlines,
+and Unicode are never normalized. This adapter follows an inspected producer
+representation, not a promise of compatibility with every Codex version. See
+[fixture provenance](tests/fixtures/README.md#codex).
+
+Multiple bundles are distinguished by bundle ID. Identical complete module bodies
+under different bundle IDs produce `CROSS_BUNDLE_CONTENT_OVERLAP` warnings, even
+when module IDs differ. A verified selected bundle remains `CURRENT` with exit
+code 0. Reusing a module ID for different content is informational
+`MODULE_ID_REUSE`, not content overlap. Two copies of the selected bundle fail;
+a current and stale or altered copy with the same ID fail as ambiguous identity.
+
+JSON results expose `content_verified`, `modules_verified`,
+`selected_bundle_occurrences`, and structured diagnostics. Legacy marker and
+sentinel counters are diagnostic only; short or repetitive modules need no unique
+sentinel to pass. A malformed foreign bundle makes `overlap_scan_complete` false
+and produces a diagnostic. It does not fail an otherwise verified selection
+unless its structure makes selected identity or boundaries ambiguous.
 
 For the active global base or override file, the probe runs from a disposable
 empty directory. For a project or nested target, it runs from explicit `--cwd` or
@@ -314,9 +341,12 @@ the target parent. The project directory must be equal to or below the target
 parent.
 
 The command sends no model request, requires no API authentication, changes no
-Codex configuration, and makes no semantic-compliance claim. Marker presence
-proves visibility, not obedience. If the debug interface is missing or changed,
-the state is `RUNTIME_UNVERIFIED` and the exact failing command is reported.
+Codex configuration, and makes no semantic-compliance claim. Complete content
+visibility is not proof that a model follows the instructions. If the debug
+interface is missing, fails, or returns an unsupported representation, the state
+is `RUNTIME_UNVERIFIED` and the exact failing command is reported. Synthetic
+adapter tests do not establish successful integration with an installed host;
+that requires a successful live probe in the intended startup context.
 
 ## Documentation
 

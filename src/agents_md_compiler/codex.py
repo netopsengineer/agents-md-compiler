@@ -9,7 +9,7 @@ A model's claim about its own instructions is not evidence, and a plausible summ
 of rules that were never loaded is worse than a clear failure.
 
 What a pass proves: the bytes reached the model's input. What it does not prove: the
-model obeyed them. Marker presence is a visibility check, never a compliance claim.
+model obeyed them. Complete content visibility is never a compliance claim.
 
 ``codex debug prompt-input`` is a debug interface, not a promised stable API. When
 the installed Codex lacks it or changes it, verification reports
@@ -21,11 +21,11 @@ import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import cast
+from typing import Literal
 
 from agents_md_compiler.errors import CodexProblem, CodexVerificationError
 from agents_md_compiler.models import (
@@ -36,6 +36,12 @@ from agents_md_compiler.models import (
     RenderedBundle,
 )
 from agents_md_compiler.rendering import begin_marker, end_marker, generated_marker
+from agents_md_compiler.runtime_evidence import (
+    DiagnosticCode,
+    RuntimeDiagnostic,
+    extract_instruction_evidence,
+    inspect_content,
+)
 
 EXECUTABLE_NAME = "codex"
 """Resolved from ``PATH`` without a shell."""
@@ -106,6 +112,13 @@ class RuntimeVerification:
             before an isolated directory was created.
         verification_context: Global or project instruction context.
         failure: Observed failure, or ``None`` on success.
+        verification_method: Complete byte comparison when attempted.
+        content_verified: Whether exactly one complete selected bundle passed.
+        selected_bundle_occurrences: Observed selected identities, or unknown.
+        modules_expected: Number of modules in the compiled selection.
+        modules_verified: Observed modules matching their expected position/body.
+        overlap_scan_complete: Whether all foreign candidates were inspected.
+        diagnostics: Ordered, policy-free content findings.
     """
 
     state: BundleState
@@ -120,6 +133,13 @@ class RuntimeVerification:
     probe_cwd: Path | None
     verification_context: VerificationContext
     failure: str | None
+    verification_method: Literal["complete_bundle_bytes"] | None = None
+    content_verified: bool = False
+    selected_bundle_occurrences: int | None = None
+    modules_expected: int = 0
+    modules_verified: int = 0
+    overlap_scan_complete: bool = False
+    diagnostics: tuple[RuntimeDiagnostic, ...] = ()
 
 
 def active_codex_home(*, environ: Mapping[str, str] | None = None) -> Path:
@@ -248,50 +268,30 @@ def detect_capability(
     """
     executable = resolve_executable(name)
     version_command = (str(executable), "--version")
-    completed = _run(version_command, timeout_seconds=timeout_seconds)
-    if completed.returncode != 0:
-        raise CodexVerificationError(
-            CodexProblem.VERSION_FAILED,
-            detail=f"exit {completed.returncode}",
-            command=version_command,
-        )
-    version = completed.stdout.decode("utf-8", errors="replace").strip()
-    help_command = (str(executable), *DEBUG_SUBCOMMAND, "--help")
-    help_result = _run(help_command, timeout_seconds=timeout_seconds)
-    if help_result.returncode != 0:
-        raise CodexVerificationError(
-            CodexProblem.CAPABILITY_MISSING,
-            detail=f"exit {help_result.returncode}",
-            command=help_command,
-        )
+    version = ""
+    try:
+        completed = _run(version_command, timeout_seconds=timeout_seconds)
+        if completed.returncode != 0:
+            raise CodexVerificationError(  # noqa: TRY301 - attach captured capability at this boundary.
+                CodexProblem.VERSION_FAILED,
+                detail=f"exit {completed.returncode}",
+                command=version_command,
+            )
+        version = completed.stdout.decode("utf-8", errors="replace").strip()
+        help_command = (str(executable), *DEBUG_SUBCOMMAND, "--help")
+        help_result = _run(help_command, timeout_seconds=timeout_seconds)
+        if help_result.returncode != 0:
+            raise CodexVerificationError(  # noqa: TRY301 - attach captured capability at this boundary.
+                CodexProblem.CAPABILITY_MISSING,
+                detail=f"exit {help_result.returncode}",
+                command=help_command,
+            )
+    except CodexVerificationError as error:
+        error.capability = CodexCapability(executable, version, False)
+        raise
     return CodexCapability(
         path=executable, version=version, prompt_input_supported=True
     )
-
-
-def extract_strings(document: object) -> Iterator[str]:
-    """Yield every string anywhere in a decoded JSON document.
-
-    Traversal is exhaustive and order-independent, so a change in how Codex nests
-    or pretty-prints its prompt input cannot hide a marker from this search.
-
-    Args:
-        document: Decoded JSON value.
-
-    Yields:
-        Each string found, including dictionary keys.
-    """
-    if isinstance(document, str):
-        yield document
-    elif isinstance(document, dict):
-        mapping = cast("dict[object, object]", document)
-        for key, value in mapping.items():
-            if isinstance(key, str):
-                yield key
-            yield from extract_strings(value)
-    elif isinstance(document, list):
-        for item in cast("list[object]", document):
-            yield from extract_strings(item)
 
 
 def required_markers(modules: Sequence[LockedModule]) -> tuple[str, ...]:
@@ -311,26 +311,16 @@ def required_markers(modules: Sequence[LockedModule]) -> tuple[str, ...]:
 
 
 def content_sentinels(rendered: RenderedBundle) -> tuple[str, ...]:
-    """Choose unique content sentinels from the first and last modules.
+    """Choose available first/last-module sentinels for legacy diagnostics.
 
-    A marker proves the wrapper arrived. A sentinel proves the wrapped bytes did.
-    Taking one from the first module and one from the last is what makes this a
-    head-to-tail check rather than a "the beginning arrived" check.
-
-    Selection is deterministic: within each module, the first line that is long
-    enough, is not a compiler marker, and occurs exactly once in the whole rendered
-    bundle. A module offering no such line propagates a
-    :class:`CodexVerificationError`, because no head-to-tail claim could be made
-    honestly without one.
+    Sentinels are optional, never a complete-content success predicate. Short or
+    repetitive modules may supply none. Selection remains deterministic.
 
     Args:
         rendered: The rendered bundle.
 
     Returns:
-        One sentinel per selected module, in module order. Two modules can never
-        yield the same sentinel, because a line that occurs in both would occur
-        twice in the bundle and the uniqueness requirement would reject it.
-
+        Available unique prose lines in selected-module order.
     """
     text = rendered.data.decode("utf-8")
     chosen = (
@@ -338,10 +328,14 @@ def content_sentinels(rendered: RenderedBundle) -> tuple[str, ...]:
         if len(rendered.modules) == 1
         else (rendered.modules[0], rendered.modules[-1])
     )
-    return tuple(_sentinel_for(text, module) for module in chosen)
+    return tuple(
+        sentinel
+        for module in chosen
+        if (sentinel := _sentinel_for(text, module)) is not None
+    )
 
 
-def _sentinel_for(text: str, module: LockedModule) -> str:
+def _sentinel_for(text: str, module: LockedModule) -> str | None:
     """Select one unique sentinel line from a module's rendered content.
 
     Args:
@@ -349,10 +343,7 @@ def _sentinel_for(text: str, module: LockedModule) -> str:
         module: The module to select from.
 
     Returns:
-        The chosen sentinel line.
-
-    Raises:
-        CodexVerificationError: The module offers no long-enough unique line.
+        The chosen sentinel line, or ``None`` when none is usable.
     """
     begin = begin_marker(module) + "\n"
     end = "\n" + end_marker(module)
@@ -368,13 +359,7 @@ def _sentinel_for(text: str, module: LockedModule) -> str:
             continue
         if text.count(candidate) == 1:
             return candidate
-    raise CodexVerificationError(
-        CodexProblem.SENTINEL_ABSENT,
-        detail=(
-            f"module {module.id!r} has no unique line of at least "
-            f"{MIN_SENTINEL_LENGTH} characters to use as a sentinel"
-        ),
-    )
+    return None
 
 
 def _check_probe_is_clean(
@@ -398,8 +383,16 @@ def _check_probe_is_clean(
         if value in haystack:
             raise CodexVerificationError(
                 CodexProblem.PROBE_CONTAMINATED,
-                detail=f"probe contains {value[:40]!r}",
-                command=tuple(command),
+                detail="expected verification token occurs in probe arguments or directory",
+                command=tuple(
+                    "[REDACTED]" if any(token in arg for token in expected) else arg
+                    for arg in command
+                ),
+                probe_cwd=(
+                    Path("[REDACTED]")
+                    if any(token in str(directory) for token in expected)
+                    else None
+                ),
             )
 
 
@@ -475,6 +468,21 @@ def _run_prompt_input(
     Raises:
         CodexVerificationError: The probe fails or returns unusable output.
     """
+    try:
+        return _decode_prompt_input(command, directory, expected, timeout_seconds)
+    except CodexVerificationError as error:
+        if error.probe_cwd is None:
+            error.probe_cwd = directory
+        raise
+
+
+def _decode_prompt_input(
+    command: tuple[str, ...],
+    directory: Path,
+    expected: Sequence[str],
+    timeout_seconds: float,
+) -> tuple[object, tuple[str, ...], Path]:
+    """Decode only bounded UTF-8 JSON; never include invalid payload bytes in errors."""
     _check_probe_is_clean(command, directory, expected)
     completed = _run(command, timeout_seconds=timeout_seconds, cwd=directory)
     if completed.returncode != 0:
@@ -491,23 +499,10 @@ def _run_prompt_input(
         )
     try:
         return json.loads(completed.stdout.decode("utf-8")), command, directory
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+    except (ValueError, RecursionError) as error:
         raise CodexVerificationError(
-            CodexProblem.INVALID_JSON, detail=str(error), command=command
+            CodexProblem.INVALID_JSON, detail=type(error).__name__, command=command
         ) from error
-
-
-def _count_occurrences(strings: Sequence[str], value: str) -> int:
-    """Count how many extracted strings contain a value.
-
-    Args:
-        strings: Every string extracted from the prompt input.
-        value: Marker or sentinel to look for.
-
-    Returns:
-        Total occurrences across all extracted strings.
-    """
-    return sum(item.count(value) for item in strings)
 
 
 def verify_rendered_visibility(
@@ -537,54 +532,93 @@ def verify_rendered_visibility(
     """
     markers = required_markers(rendered.modules)
     sentinels = content_sentinels(rendered)
-    expected = (*markers, *sentinels)
-    capability = detect_capability(
-        name=name, timeout_seconds=capability_timeout_seconds
-    )
-    document, command, probe_cwd = inspect_prompt_input(
-        capability, expected=expected, cwd=cwd, timeout_seconds=timeout_seconds
-    )
-    strings = tuple(extract_strings(document))
-
-    header = markers[0]
-    header_count = _count_occurrences(strings, header)
-    if header_count == 0:
-        raise CodexVerificationError(
-            CodexProblem.HEADER_ABSENT, detail=header, command=command
-        )
-    for marker in markers[1:]:
-        count = _count_occurrences(strings, marker)
-        if count == 0:
-            raise CodexVerificationError(
-                CodexProblem.MARKER_ABSENT, detail=marker, command=command
-            )
-        if count > 1:
-            raise CodexVerificationError(
-                CodexProblem.MARKER_DUPLICATED,
-                detail=f"{marker} appears {count} times",
-                command=command,
-            )
-    for sentinel in sentinels:
-        if _count_occurrences(strings, sentinel) == 0:
-            raise CodexVerificationError(
-                CodexProblem.SENTINEL_ABSENT, detail=sentinel, command=command
-            )
-    return RuntimeVerification(
-        state=BundleState.CURRENT,
-        codex_path=capability.path,
-        codex_version=capability.version,
-        capability_present=capability.prompt_input_supported,
+    context = VerificationContext.GLOBAL if cwd is None else VerificationContext.PROJECT
+    result = RuntimeVerification(
+        state=BundleState.RUNTIME_UNVERIFIED,
+        codex_path=None,
+        codex_version=None,
+        capability_present=False,
         markers_expected=len(markers),
-        markers_found=len(markers),
+        markers_found=0,
         sentinels_expected=len(sentinels),
-        sentinels_found=len(sentinels),
-        probe_command=command,
-        probe_cwd=probe_cwd,
-        verification_context=(
-            VerificationContext.GLOBAL if cwd is None else VerificationContext.PROJECT
-        ),
+        sentinels_found=0,
+        probe_command=(),
+        probe_cwd=cwd,
+        verification_context=context,
         failure=None,
+        modules_expected=len(rendered.modules),
     )
+    try:
+        capability = detect_capability(
+            name=name, timeout_seconds=capability_timeout_seconds
+        )
+        result = replace(
+            result,
+            codex_path=capability.path,
+            codex_version=capability.version,
+            capability_present=capability.prompt_input_supported,
+        )
+        document, command, probe_cwd = inspect_prompt_input(
+            capability,
+            expected=(*markers, *sentinels),
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+        )
+        result = replace(
+            result,
+            probe_command=command,
+            probe_cwd=probe_cwd,
+            verification_method="complete_bundle_bytes",
+        )
+        fields = extract_instruction_evidence(document)
+        inspection = inspect_content(rendered, fields)
+        selected = inspection.selected_data
+        result = replace(
+            result,
+            selected_bundle_occurrences=inspection.selected_bundle_occurrences,
+            modules_verified=inspection.modules_verified,
+            content_verified=inspection.content_verified,
+            overlap_scan_complete=inspection.overlap_scan_complete,
+            diagnostics=inspection.diagnostics,
+            markers_found=sum(
+                selected.count(marker.encode("ascii")) for marker in markers
+            ),
+            sentinels_found=sum(
+                sentinel.encode("utf-8") in selected for sentinel in sentinels
+            ),
+        )
+        if not inspection.content_verified:
+            problem = next(
+                item for item in inspection.diagnostics if item.severity == "error"
+            )
+            raise CodexVerificationError(  # noqa: TRY301 - attach observed verification facts at this boundary.
+                CodexProblem[problem.code.name], command=command
+            )
+    except CodexVerificationError as error:
+        if error.capability is not None:
+            result = replace(
+                result,
+                codex_path=error.capability.path,
+                codex_version=error.capability.version or None,
+                capability_present=error.capability.prompt_input_supported,
+            )
+        diagnostics = result.diagnostics
+        if error.problem is CodexProblem.UNSUPPORTED_EVIDENCE:
+            diagnostics = (
+                RuntimeDiagnostic(
+                    DiagnosticCode.UNSUPPORTED_EVIDENCE, "error", str(error)
+                ),
+            )
+        result = replace(
+            result,
+            failure=str(error),
+            diagnostics=diagnostics,
+            probe_command=error.command or result.probe_command,
+            probe_cwd=error.probe_cwd or result.probe_cwd,
+        )
+        error.verification = result
+        raise
+    return replace(result, state=BundleState.CURRENT)
 
 
 def unverified(
@@ -609,17 +643,21 @@ def unverified(
     Returns:
         The verification result, never ``CURRENT``.
     """
+    if error.verification is not None:
+        return error.verification
+    if capability is None:
+        capability = error.capability
     return RuntimeVerification(
         state=BundleState.RUNTIME_UNVERIFIED,
         codex_path=None if capability is None else capability.path,
         codex_version=None if capability is None else capability.version,
-        capability_present=capability is not None,
+        capability_present=capability is not None and capability.prompt_input_supported,
         markers_expected=markers_expected,
         markers_found=0,
         sentinels_expected=sentinels_expected,
         sentinels_found=0,
         probe_command=error.command,
-        probe_cwd=probe_cwd,
+        probe_cwd=error.probe_cwd or probe_cwd,
         verification_context=verification_context,
         failure=str(error),
     )
