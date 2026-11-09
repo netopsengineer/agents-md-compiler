@@ -29,3 +29,19 @@ def test_reconciliation_never_executes_triggering_pr_code() -> None:
     assert "ref: ${{ github.sha }}" in workflow
     assert "contents: read" in workflow
     assert ": write" not in workflow
+
+
+def test_stable_python_315_compatibility_cannot_be_advisory() -> None:
+    workflow = (ROOT / ".github/workflows/validate.yml").read_text()
+    job = workflow.split("\n  compatibility:\n", 1)[1]
+    assert "name: Python 3.15 compatibility" in job
+    assert "continue-on-error" not in job
+    assert "needs: evidence" in job
+    assert "if: needs.evidence.outputs.required == 'true'" in job
+    assert "enable-cache: false" in job
+    assert "assert sys.version_info[:2] == (3, 15)" in job
+    assert 'assert sys.version_info.releaselevel == "final"' in job
+    assert (
+        "uv run --locked --python 3.15 --no-sources --isolated pytest --no-cov" in job
+    )
+    assert "git diff --exit-code -- uv.lock" in job

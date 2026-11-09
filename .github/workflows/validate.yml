@@ -352,17 +352,14 @@ jobs:
         # in the gate job owns the coverage floor.
         run: uv run pytest --no-cov -k "golden or deterministic or byte" -v
 
-  # 12. Python 3.15 prerelease signal. Advisory only while 3.15 is prerelease.
-  # 3.15 was at 3.15.0-beta.4 when this file was written, verified against
-  # actions/python-versions releases. When 3.15 reaches final release this job must
-  # be reclassified as required and added to the branch-protection check set, not
-  # left standing as a permanently ignorable signal.
-  prerelease:
+  # 12. Python 3.15 compatibility is required now that 3.15 is stable. Keep the
+  # check name synchronized with the protect-main ruleset. The 3.14 gate still
+  # owns the coverage floor and minimum-supported-version checks.
+  compatibility:
     needs: evidence
     if: needs.evidence.outputs.required == 'true'
-    name: prerelease signal (3.15, advisory)
+    name: Python 3.15 compatibility
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # frozen: v2.22.3
@@ -377,18 +374,23 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # frozen: v10.3.3
         with:
           version-file: uv.lock
-          # This isolated prerelease resolution must not read or write the stable
-          # locked-environment cache.
+          # Keep the isolated compatibility environment separate from the
+          # minimum-version gate cache.
           enable-cache: false
 
-      - name: Resolve against the prerelease interpreter
-        # An ephemeral resolution, never the committed lock: 3.15 wheels may not
-        # exist yet for every development dependency. PY-PROJ-008 permits this
-        # precisely because the job states the strategy and does not write uv.lock.
+      - name: Test with the stable Python 3.15 interpreter
+        # Use the committed dependency set and fail if it needs an update. The
+        # isolated environment never replaces the minimum-version environment.
         run: |
           set -euo pipefail
           uv python install 3.15
-          uv run --python 3.15 --no-sources --isolated pytest --no-cov
+          uv run --locked --python 3.15 --no-sources --isolated python -c '
+          import sys
+          assert sys.version_info[:2] == (3, 15), sys.version
+          assert sys.version_info.releaselevel == "final", sys.version
+          print(sys.version)
+          '
+          uv run --locked --python 3.15 --no-sources --isolated pytest --no-cov
 
       - name: Confirm the committed lock was not rewritten
         run: git diff --exit-code -- uv.lock

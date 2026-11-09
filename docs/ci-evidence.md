@@ -354,11 +354,15 @@ blocking advisory gate is the `osv-scanner` job, which covers the same resolved
 dependency set: `uv.lock` has been a supported OSV-Scanner lockfile since scanner
 v2.0.0. Promote `uv audit` to blocking when it leaves preview.
 
-**Python 3.15 is an advisory job.** The newest 3.15 build published through
-`actions/python-versions` at the verification date was `3.15.0-beta.4`, so 3.15 is
-prerelease and its job is `continue-on-error`. When 3.15 reaches final release this
-must be reclassified as a required check rather than left as a permanently ignorable
-signal. The job also asserts that its ephemeral resolution did not rewrite `uv.lock`.
+**Python 3.15 compatibility is required.** Reclassified on 2026-11-09 after
+verifying the installed interpreter reports Python 3.15.0 with release level
+`final`. The `Python 3.15 compatibility` job has no `continue-on-error`, asserts
+the interpreter is stable 3.15, and tests the committed dependency set with
+`--locked` in an isolated environment. It also asserts that `uv.lock` was not
+rewritten. Add this exact GitHub Actions check name to the active `protect-main`
+ruleset while preserving all existing checks, review requirements, and bypass
+settings. Python 3.14 remains the minimum supported version and owns the
+100 percent line-and-branch coverage gate.
 
 **Gitleaks runs twice, for different reasons.** The pinned pre-commit hook runs
 `gitleaks git --pre-commit --staged`, which is correct at commit time but scans nothing
@@ -435,7 +439,7 @@ Cache ownership is explicit:
 | Scheduled security scan                    | Linux security static-analysis job   | Cache disabled for the audit-only job           |
 | macOS and Windows validation               | Golden job for the matching platform | Smoke jobs keep the package cache disabled      |
 | Release and auto-fix                       | None                                 | Restore-only; subsequent validation owns writes |
-| Isolated Python prerelease signal          | None                                 | Cache disabled                                  |
+| Isolated Python 3.15 compatibility         | None                                 | Cache disabled                                  |
 
 This keeps dependency-cache reuse without same-key write races. It does not change
 an Action version, immutable SHA, effective permission, dependency resolution, or
