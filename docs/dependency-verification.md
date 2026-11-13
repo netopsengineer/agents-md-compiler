@@ -659,9 +659,12 @@ The [uv update job](https://github.com/netopsengineer/agents-md-compiler/actions
 resolved updates but discarded the group because the unlocked `uv-build`
 requirement had no previous version while several development updates changed only
 `uv.lock`. Dependabot's default library range-widening strategy left those
-requirements unchanged. The explicit `increase` strategy makes every selected
-update carry a requirement change, avoiding that mixed-group rejection without
-excluding packages or changing the daily group and seven-day cooldown.
+requirements unchanged. The initial explicit `increase` strategy was accepted in configuration but
+ignored by the hosted multi-ecosystem job, which still received a null strategy
+and skipped the group. It was removed after this post-merge verification.
+Instead, a non-default `build` dependency group mirrors the existing build
+requirement so `uv.lock` supplies the missing previous backend version. This
+preserves all packages, the daily group and the seven-day cooldown.
 
 Reconciled locked Ruff with the already merged hook at `0.17.4`. The
 [latest release endpoint](https://api.github.com/repos/astral-sh/ruff/releases/latest)
@@ -674,7 +677,18 @@ November 5. An exact-version OSV query for PyPI `ruff` `0.17.4` returned no
 advisories on November 13. The newer release is deliberately left to the normal
 cooldown queue rather than changing the reviewed hook again.
 
-Only Ruff changed in `uv.lock`; shipped source, build requirements and runtime
-behavior are unchanged. No product release is warranted. Regression tests require
-Ruff hook/lock agreement and the explicit uv update strategy. Existing security
-and merge controls are unchanged.
+Ruff was aligned first. The follow-up additionally locks `uv-build==0.12.24`,
+the latest version satisfying the unchanged `uv_build>=0.12.2,<0.13` build
+requirement. The [uv latest release endpoint](https://api.github.com/repos/astral-sh/uv/releases/latest)
+reported `0.13.8`; the [tags endpoint](https://api.github.com/repos/astral-sh/uv/tags)
+was checked. The exact [0.12.24 tag](https://api.github.com/repos/astral-sh/uv/git/ref/tags/0.12.24)
+is a direct commit reference to `5411378eb76dc1ea1ad90aeb10e84e997e5bbd96`.
+[PyPI metadata](https://pypi.org/pypi/uv-build/0.12.24/json) records publication
+on October 8. The exact OSV query returned no advisories, and the frozen audit
+reported no vulnerabilities in 55 packages.
+
+The additional group changes source-distribution project configuration, not the
+build requirement, installed wheel or runtime. No product release is warranted
+for this development-only metadata change. Regression tests require Ruff
+hook/lock agreement and a locked backend mirroring the build requirement. Existing
+security and merge controls are unchanged.
