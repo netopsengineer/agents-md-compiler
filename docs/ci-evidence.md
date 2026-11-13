@@ -735,3 +735,34 @@ follows the same queue dispatch and retains an hourly recovery check; its
 checkout is the immutable event SHA, never triggering PR content or an artifact.
 The original daily full validation is retained independently of deduplication.
 Release publication policy is unchanged.
+
+## Reviewed release deferral: November 13, 2026
+
+Owner approval covers the exact package input tree at
+`1cd53420b2922c0d8633bf82acab997e55d721dc`, relative to published `v1.1.1`.
+`ci/release-deferral.json` records both immutable commits and SHA256 hashes of
+**every** published input, not just the changed file.
+
+The reviewed change widens the source build backend range from
+`uv_build>=0.12.2,<0.13` to `<0.14` and updates development groups. The
+[upstream 0.13.0 notes](https://github.com/astral-sh/uv/releases/tag/0.13.0)
+report no breaking build-backend configuration changes. Exact-main validation
+passed the aggregate, artifact, Python 3.15, and three-platform smoke/golden jobs.
+A local build with the pinned uv 0.13.7 was compared with downloaded PyPI 1.1.1
+wheel and sdist bytes, whose SHA256 hashes matched the registry. The wheel differs
+only in generator bookkeeping and RECORD; the source distribution differs only
+in its two pyproject representations. Runtime source and package metadata are
+unchanged. No demonstrated product defect warrants a patch solely for this bump.
+
+Reconciliation still verifies the public tag identity and ancestry, the reviewed
+commit's ancestry, the complete reviewed and current package trees, non-yanked
+registry metadata, and actual distribution download hashes. Added, removed,
+modified, or non-regular package inputs fail closed. There is no general
+exception for pyproject changes, dependency groups, or build backends. Automatic
+release eligibility, security gates, permissions, and publication are unchanged.
+
+The record automatically becomes inactive when the declared package version
+changes. Reconciliation then requires the new public tag and registry artifacts
+through the ordinary path. Remove the inert record during subsequent repository
+maintenance after the next warranted release; never update its hashes to accept
+another change without a separate explicit review and approval.
