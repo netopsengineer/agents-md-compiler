@@ -46,7 +46,7 @@ jobs:
       required: ${{ steps.decide.outputs.required }}
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # frozen: v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # frozen: v2.22.4
         with:
           egress-policy: audit
       - name: Always run requested and pull-request gates
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # frozen: v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # frozen: v2.22.4
         with:
           # Audit rather than block: this job resolves Python, PyPI, npm, and Go
           # toolchains through the hook runner, and an allowlist that lags any one
@@ -153,7 +153,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # frozen: v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # frozen: v2.22.4
         with:
           egress-policy: audit
 
@@ -229,7 +229,7 @@ jobs:
         # this step runs only where it is fully supported and is skipped elsewhere
         # rather than pretending to enforce something it cannot.
         if: runner.os == 'Linux'
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # frozen: v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # frozen: v2.22.4
         with:
           egress-policy: audit
 
@@ -326,7 +326,7 @@ jobs:
     steps:
       - name: Harden the runner
         if: runner.os == 'Linux'
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # frozen: v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # frozen: v2.22.4
         with:
           egress-policy: audit
 
@@ -362,7 +362,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # frozen: v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # frozen: v2.22.4
         with:
           egress-policy: audit
 
