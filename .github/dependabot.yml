@@ -34,6 +34,10 @@ updates:
   # The runtime has zero dependencies, so every update here is development-only and
   # lands in [dependency-groups] plus uv.lock.
   - package-ecosystem: uv
+    # A library defaults to widening ranges. Mixed lock-only changes and an
+    # unlocked build backend make Dependabot reject the whole grouped update.
+    # Increase requirements so every group member carries a manifest change.
+    versioning-strategy: increase
     directory: "/"
     patterns: ["*"]
     multi-ecosystem-group: all-dependencies

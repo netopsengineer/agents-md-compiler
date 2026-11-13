@@ -652,3 +652,29 @@ vulnerabilities or adverse project statuses in 54 packages. All 780 tests passed
 at 100 percent line and branch coverage, as did strict typing, Ruff, pydoclint,
 Bandit, package metadata and contents checks, direct/sdist wheel comparison,
 and installed-wheel smoke tests in an isolated home with `CODEX_HOME` unset.
+
+## Grouped uv recovery: November 13, 2026
+
+The [uv update job](https://github.com/netopsengineer/agents-md-compiler/actions/runs/43376639398)
+resolved updates but discarded the group because the unlocked `uv-build`
+requirement had no previous version while several development updates changed only
+`uv.lock`. Dependabot's default library range-widening strategy left those
+requirements unchanged. The explicit `increase` strategy makes every selected
+update carry a requirement change, avoiding that mixed-group rejection without
+excluding packages or changing the daily group and seven-day cooldown.
+
+Reconciled locked Ruff with the already merged hook at `0.17.4`. The
+[latest release endpoint](https://api.github.com/repos/astral-sh/ruff/releases/latest)
+reported `0.17.5`; the [tags endpoint](https://api.github.com/repos/astral-sh/ruff/tags)
+was also checked. The exact
+[`0.17.4` tag](https://api.github.com/repos/astral-sh/ruff/git/ref/tags/0.17.4)
+is a direct commit reference to `05cdc36a45a29e078c2af9358969d0f576408bef`.
+[PyPI metadata](https://pypi.org/pypi/ruff/0.17.4/json) confirms publication on
+November 5. An exact-version OSV query for PyPI `ruff` `0.17.4` returned no
+advisories on November 13. The newer release is deliberately left to the normal
+cooldown queue rather than changing the reviewed hook again.
+
+Only Ruff changed in `uv.lock`; shipped source, build requirements and runtime
+behavior are unchanged. No product release is warranted. Regression tests require
+Ruff hook/lock agreement and the explicit uv update strategy. Existing security
+and merge controls are unchanged.
