@@ -22,9 +22,11 @@ def test_ruff_hook_matches_locked_development_tool() -> None:
     assert versions == [match.group(1)]
 
 
-def test_uv_group_updates_requirements_not_only_lockfile() -> None:
-    config = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
-    uv_block = config.split("  - package-ecosystem: uv\n", 1)[1].split(
-        "  - package-ecosystem:", 1
-    )[0]
-    assert "    versioning-strategy: increase\n" in uv_block
+def test_build_requirement_has_locked_version_for_dependabot() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert project["dependency-groups"]["build"] == project["build-system"]["requires"]
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    versions = [
+        entry["version"] for entry in lock["package"] if entry["name"] == "uv-build"
+    ]
+    assert len(versions) == 1

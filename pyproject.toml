@@ -70,6 +70,9 @@ source-exclude = [
 ]
 
 [dependency-groups]
+# Keep the build requirement visible in uv.lock so grouped Dependabot updates
+# have a previous version. This group is not installed by default.
+build = ["uv_build>=0.12.2,<0.13"]
 # Dependabot owns this exact bootstrap pin. setup-uv installs the matching package
 # from uv.lock, while the separate group keeps uv itself out of the default
 # development environment.
