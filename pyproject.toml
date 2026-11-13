@@ -4,7 +4,7 @@
 # `uv_build>=0.12.2,<0.13` as the current requirement. The uv 0.12.2 release
 # notes document no breaking configuration change. See
 # docs/dependency-verification.md.
-requires = ["uv_build>=0.12.2,<0.13"]
+requires = ["uv_build>=0.12.2,<0.14"]
 build-backend = "uv_build"
 
 [project]
@@ -72,12 +72,12 @@ source-exclude = [
 [dependency-groups]
 # Keep the build requirement visible in uv.lock so grouped Dependabot updates
 # have a previous version. This group is not installed by default.
-build = ["uv_build>=0.12.2,<0.13"]
+build = ["uv_build>=0.12.2,<0.14"]
 # Dependabot owns this exact bootstrap pin. setup-uv installs the matching package
 # from uv.lock, while the separate group keeps uv itself out of the default
 # development environment.
 bootstrap = [
-    "uv==0.13.4",
+    "uv==0.13.7",
 ]
 # Every version below was resolved live on 2026-08-10 from PyPI plus the upstream
 # GitHub release and tag endpoints, and every one returned no OSV advisory. See
