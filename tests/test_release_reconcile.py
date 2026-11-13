@@ -2,13 +2,19 @@
 
 import copy
 import hashlib
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scripts.reconcile_release import validate_evidence, verify_downloads
+from scripts import reconcile_release
+from scripts.reconcile_release import (
+    validate_evidence,
+    verify_deferral,
+    verify_downloads,
+)
 
 
 def evidence() -> dict[str, Any]:
@@ -130,3 +136,100 @@ def test_artifact_bytes_are_verified_without_execution(case: str) -> None:
         else:
             with pytest.raises(ValueError):
                 verify_downloads(registry)
+
+
+def test_active_deferral_requires_exact_tree_and_baseline() -> None:
+
+    record = {
+        "version": "1.0.1",
+        "reviewed_commit": "a" * 40,
+        "published_commit": "b" * 40,
+        "package_inputs": {"pyproject.toml": "c" * 64},
+    }
+    with (
+        patch("scripts.reconcile_release.git_bytes") as git,
+        patch("scripts.reconcile_release.package_inputs") as inputs,
+    ):
+        git.side_effect = [b"d" * 40, b"b" * 40, b"", b""]
+        inputs.return_value = record["package_inputs"]
+        assert verify_deferral("1.0.1", record)
+        assert git.call_count == 4
+        inputs.assert_any_call("a" * 40)
+        inputs.assert_any_call("d" * 40)
+
+
+@pytest.mark.parametrize("mutation", ["altered", "added", "deleted", "reviewed"])
+def test_changed_inputs_never_inherit_deferral(mutation: str) -> None:
+
+    expected = {"pyproject.toml": "c" * 64}
+    changed = dict(expected)
+    if mutation == "deleted":
+        changed.clear()
+    elif mutation == "added":
+        changed["src/agents_md_compiler/new.py"] = "e" * 64
+    else:
+        changed["pyproject.toml"] = "f" * 64
+    record = {
+        "version": "1.0.1",
+        "reviewed_commit": "a" * 40,
+        "published_commit": "b" * 40,
+        "package_inputs": expected,
+    }
+    with (
+        patch(
+            "scripts.reconcile_release.git_bytes",
+            side_effect=[b"d" * 40, b"b" * 40, b"", b""],
+        ),
+        patch(
+            "scripts.reconcile_release.package_inputs",
+            side_effect=[changed, expected]
+            if mutation == "reviewed"
+            else [expected, changed],
+        ),
+        pytest.raises(ValueError, match="inputs changed"),
+    ):
+        verify_deferral("1.0.1", record)
+
+
+def test_deferral_retires_at_next_version_and_cannot_skip_registry() -> None:
+
+    assert not verify_deferral("1.0.2", {"version": "1.0.1"})
+    validate_evidence("1.0.1", ("pyproject.toml",), evidence(), deferred=True)
+    with pytest.raises(ValueError):
+        validate_evidence("1.0.1", ("pyproject.toml",), {}, deferred=True)
+
+
+def test_deferral_rejects_changed_tag_and_nonancestor() -> None:
+
+    record = {
+        "version": "1.0.1",
+        "reviewed_commit": "a" * 40,
+        "published_commit": "b" * 40,
+        "package_inputs": {"pyproject.toml": "c" * 64},
+    }
+    with (
+        patch(
+            "scripts.reconcile_release.git_bytes", side_effect=[b"d" * 40, b"e" * 40]
+        ),
+        pytest.raises(ValueError, match="baseline changed"),
+    ):
+        verify_deferral("1.0.1", record)
+    with (
+        patch(
+            "scripts.reconcile_release.git_bytes",
+            side_effect=[b"d" * 40, b"b" * 40, subprocess.CalledProcessError(1, "git")],
+        ),
+        pytest.raises(subprocess.CalledProcessError),
+    ):
+        verify_deferral("1.0.1", record)
+
+
+@pytest.mark.parametrize("mode", [b"120000", b"100755", b"160000"])
+def test_deferral_rejects_non_regular_package_inputs(mode: bytes) -> None:
+
+    entry = mode + b" blob " + b"a" * 40 + b"\tpyproject.toml\0"
+    with (
+        patch("scripts.reconcile_release.git_bytes", return_value=entry),
+        pytest.raises(ValueError, match="regular"),
+    ):
+        reconcile_release.package_inputs("a" * 40)
