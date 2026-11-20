@@ -2,7 +2,7 @@
   "package_inputs": {
     "LICENSE": "f2b8d34708823abd3848d770803adf6f1e06c2bb6272da529649d666cb568390",
     "README.md": "7c387122071081d851f41369465f41766b41937db73073574cf5bc1acc71c250",
-    "pyproject.toml": "371008bf6336d41b6deed43535a43d1d9f77ad51ca8ab03958c502dfda07c97b",
+    "pyproject.toml": "ecd51fe7328376cc20ee6a3363177fd0375d170ba24f26ce352ba010a0661ed9",
     "src/agents_md_compiler/__init__.py": "dff96689d7b55389b39ce805f5b7dd595d0dc0b6ad8939496473b4d55bd7375a",
     "src/agents_md_compiler/__main__.py": "cc171f6445891cdc839162e97b42b5599ab8a69256a2f90e273a8091bba30b97",
     "src/agents_md_compiler/_version.py": "e190b5f33452f6e78eac55a4a5c9468085ea92cbf3d57596da20eb273ed5422f",
@@ -29,6 +29,6 @@
     "src/agents_md_compiler/state.py": "d1854fb16f2c2d04be9d54cb13098fbf60c219003f8f68527457ca6e824f05f7"
   },
   "published_commit": "9624ba0fa1b037d1201196c755356a4ccc5c3d6b",
-  "reviewed_commit": "1cd53420b2922c0d8633bf82acab997e55d721dc",
+  "reviewed_commit": "181cd09f05a7f871fdd5cdc4a178e03e98d720d0",
   "version": "1.1.1"
 }
