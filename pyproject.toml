@@ -77,7 +77,7 @@ build = ["uv_build>=0.12.2,<0.14"]
 # from uv.lock, while the separate group keeps uv itself out of the default
 # development environment.
 bootstrap = [
-    "uv==0.13.8",
+    "uv==0.13.9",
 ]
 # Every version below was resolved live on 2026-08-10 from PyPI plus the upstream
 # GitHub release and tag endpoints, and every one returned no OSV advisory. See
