@@ -263,7 +263,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # frozen: v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # frozen: v10.4.0
         with:
           version-file: uv.lock
           # validate.yml owns the shared Linux cache write. Release jobs restore
@@ -372,7 +372,7 @@ jobs:
         # A protected branch rejects a push from GITHUB_TOKEN, and a personal access
         # token would be long-lived and broadly scoped. This token is minted per run,
         # scoped to this repository, and limited to the permissions listed.
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # frozen: v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # frozen: v3.4.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -531,7 +531,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # frozen: v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # frozen: v10.4.0
         with:
           version-file: uv.lock
           enable-cache: true
@@ -587,7 +587,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # frozen: v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # frozen: v10.4.0
         with:
           version-file: uv.lock
           # The release gate and validate gate already populated this key. The
